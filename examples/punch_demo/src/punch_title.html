@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.cdnfonts.com/css/tex-gyre-heros" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<style>
+html,body{margin:0;padding:0;background:transparent;}
+body{width:2560px;height:1440px;overflow:hidden;}
+#root{position:relative;width:2560px;height:1440px;}
+.t{position:absolute;right:1220px;text-align:right;color:#fff;font-family:'TeXGyreHeros','FreeSans',sans-serif;font-weight:700;line-height:1;opacity:0;
+text-shadow:-7px 0 0 rgba(40,120,255,0.92),7px 0 0 rgba(255,138,30,0.92),0 0 26px rgba(255,255,255,0.35),0 6px 30px rgba(0,0,0,0.45);}
+.main{top:560px;font-size:210px;letter-spacing:-6px;}
+.sub{top:772px;font-size:118px;letter-spacing:-3px;}
+</style></head><body>
+<div id="root" data-composition-id="main" data-width="2560" data-height="1440" data-start="0" data-duration="1.6">
+<div id="m" class="clip t main" data-start="0" data-duration="1.6" data-track-index="1">EINSTEIN</div>
+<div id="s" class="clip t sub" data-start="0" data-duration="1.6" data-track-index="2">VS. BOHR</div>
+</div>
+<script>
+window.__timelines=window.__timelines||{};var tl=gsap.timeline({paused:true});
+tl.fromTo("#m",{opacity:0},{opacity:1,duration:0.12,ease:"none"},0.04);
+tl.fromTo("#s",{opacity:0},{opacity:1,duration:0.12,ease:"none"},0.28);
+tl.set("#root",{opacity:1},1.59);
+window.__timelines["main"]=tl;
+</script>
+</body></html>

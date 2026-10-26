@@ -1,0 +1,13 @@
+{
+  "name": "hf2ae",
+  "version": "0.1.0",
+  "description": "Convert Frameo HyperFrames + ffmpeg shots into editable After Effects projects",
+  "type": "module",
+  "bin": { "hf2ae": "src/cli.js" },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

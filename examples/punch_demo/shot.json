@@ -1,0 +1,27 @@
+{
+  "name": "Punch Demo – Einstein vs Bohr",
+  "fps": 25,
+  "source": "Frameo › Famous and Iconic Photos › /code/ffmpeg/punch_demo_v4 (title swapped for the fade-only webm, per its todo)",
+  "inputs": [
+    {
+      "file": "src/solvay.png",
+      "name": "Solvay 1927"
+    },
+    {
+      "file": "src/punch_title.webm",
+      "name": "Punch Title",
+      "hyperframes": "src/punch_title.html"
+    },
+    {
+      "file": "src/money_01.png",
+      "name": "Money 01"
+    }
+  ],
+  "graphFile": "graph.txt",
+  "output": "v",
+  "names": {
+    "comp": "Photo + Punch Title",
+    "A": "Shot 1 – Einstein push",
+    "B": "Shot 2 – Money"
+  }
+}

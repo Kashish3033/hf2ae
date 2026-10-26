@@ -1,0 +1,4 @@
+node_modules/
+out/
+examples/*/src/*
+!examples/*/src/*.html
