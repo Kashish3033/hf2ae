@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=block" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; width:1280px; height:720px; background:#111; overflow:hidden; }
+  #root { position:relative; width:1280px; height:720px; background:#111; }
+  #wrap {
+    position:absolute; left:0; top:0; width:1280px; height:720px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #h {
+    display:block; text-align:center; white-space:pre;
+    font-family:'Anton', sans-serif; font-size:96px; line-height:1; color:#fff;
+    margin:0; letter-spacing:0;
+  }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-width="1280" data-height="720" data-start="0" data-duration="6">
+  <div id="wrap" class="clip" data-start="0" data-duration="6" data-track-index="1"><h1 id="h">The investor every CEO fears</h1></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="plus/ease.js"></script>
+<script src="plus/text.js"></script>
+<script>
+  var tl = gsap.timeline({paused:true});
+  var out = hfPlus.text.animate(tl, document.getElementById('h'), {
+    selectors:[{type:'range', start:0, end:100}],
+    props:{opacity:0, y:30},
+    based:'words',
+    fps:24,
+    duration:6
+  });
+  tl.to(out.selectors[0], {start:100, duration:1, ease:'none'}, 0.5);
+  tl.set({}, {}, 6);
+  window.__timelines = window.__timelines || {};
+  window.__timelines['main'] = tl;
+</script>
+</body>
+</html>

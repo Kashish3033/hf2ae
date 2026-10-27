@@ -103,8 +103,10 @@
     return c;
   }
 
+  const fontString = (t) => `${t.style === 'italic' || t.fauxItalic ? 'italic ' : ''}${t.fauxBold ? 700 : (t.weight || 400)} ${t.size}px "${t.family}"`;
+
   function drawText(ctx, t) {
-    ctx.font = `${t.style === 'italic' ? 'italic ' : ''}${t.weight || 400} ${t.size}px "${t.family}"`;
+    ctx.font = fontString(t);
     // AE tracking is in 1/1000 em, between characters (not after the last one).
     const ls = t.tracking / 1000 * t.size;
     ctx.letterSpacing = `${ls}px`;
@@ -118,6 +120,107 @@
     });
   }
 
+
+  // ---- Text Animators, as AE applies them ---------------------------------------
+
+  // Units of the text and their character ranges (AE "Based On").
+  function units(text, based) {
+    if (based === 'words') return [...text.matchAll(/\S+/g)].map((m) => ({ s: m[0], i: m.index }));
+    if (based === 'lines') return text.split('\r').map((line, k, all) => ({ s: line, i: all.slice(0, k).join('\r').length + (k ? 1 : 0) }));
+    return Array.from(text).map((ch, k, all) => ({ s: ch, i: all.slice(0, k).join('').length }));
+  }
+
+  // Range Selector, Square shape, percentage units: how much of unit k (of n)
+  // lies inside [start, end] + offset.
+  function amount(sel, k, n, f) {
+    const off = value(sel.offset, f) || 0;
+    let a = (value(sel.start, f) + off) / 100, b = (value(sel.end, f) + off) / 100;
+    if (a > b) [a, b] = [b, a];
+    const u0 = k / n, u1 = (k + 1) / n;
+    return Math.min(Math.max((Math.min(b, u1) - Math.max(a, u0)) * n, 0), 1);
+  }
+
+  const SCRAMBLE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const hash = (k, f) => { let x = (k * 374761393 + f * 668265263) | 0; x = (x ^ (x >>> 13)) * 1274126177; return Math.abs(x ^ (x >>> 16)); };
+
+  // One animator (hf2ae writes one per text.animate selector).
+  function drawAnimated(ctx, t, layer, comp, f) {
+    const A = t.animators[0];
+    if (t.animators.length > 1) notes.add('preview draws the first text animator only');
+    ctx.font = fontString(t);
+    const ls = t.tracking / 1000 * t.size;
+    ctx.letterSpacing = `${ls}px`;
+    ctx.textBaseline = 'alphabetic';
+    const text = t.text;
+    const total = ctx.measureText(text).width - ls;
+    const x0 = t.justify === 'right' ? -total : t.justify === 'center' ? -total / 2 : 0;
+    const m = ctx.measureText('M');
+    // Grouping alignment 0,-50%: units pivot on the middle of the em box.
+    const oy = -(m.fontBoundingBoxAscent - m.fontBoundingBoxDescent) / 2;
+    const us = units(text, A.based);
+    const p = A.props;
+    const world = ctx.getTransform();
+    const threeD = layer.threeDPerChar && comp.camera;
+    us.forEach((u, k) => {
+      const a = amount(A.selector, k, us.length, f);
+      let str = u.s;
+      if (p.scramble && a > 0) str = SCRAMBLE[hash(k, f) % SCRAMBLE.length];
+      const ux = x0 + ctx.measureText(text.slice(0, u.i)).width;
+      const uw = ctx.measureText(u.s).width - ls;
+      const cx = ux + uw / 2;
+      const op = p.opacity !== undefined ? (100 + a * (p.opacity - 100)) / 100 : 1;
+      if (op <= 0) return;
+      const [dx, dy, dz] = (p.position || [0, 0, 0]).map((v) => v * a);
+      const sc = p.scale ? (100 + a * (p.scale[0] - 100)) / 100 : 1;
+      const rz = (p.rotation || 0) * a;
+      const rx = (p.rotationX || 0) * a;
+      if (!threeD || (!rx && !dz)) {
+        ctx.save();
+        ctx.globalAlpha *= op;
+        ctx.translate(cx + dx, oy + dy);
+        ctx.rotate(rz * Math.PI / 180);
+        ctx.scale(sc, sc);
+        ctx.fillStyle = rgb(t.fill);
+        ctx.fillText(str, -uw / 2 - (ux - (cx - uw / 2)), -oy);
+        ctx.restore();
+        return;
+      }
+      // Per-character 3D seen through the comp camera (zoom = CSS perspective).
+      // AE z points away from the viewer and its X rotation turns the other
+      // way to CSS (hf2ae flipped both), so flip back to project.
+      const asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent;
+      const pad = 4, gw = Math.ceil(uw + 2 * pad), gh = Math.ceil(asc + desc + 2 * pad);
+      const g = new OffscreenCanvas(gw, gh), gc = g.getContext('2d');
+      gc.font = ctx.font; gc.letterSpacing = ctx.letterSpacing; gc.textBaseline = 'alphabetic'; gc.fillStyle = rgb(t.fill);
+      gc.fillText(str, pad, pad + asc);
+      const th = -rx * Math.PI / 180, cssZ = -dz, P = comp.camera.zoom;
+      const ccx = comp.w / 2, ccy = comp.h / 2;
+      // Project a point of the glyph (yl relative to the pivot) to the comp.
+      const project = (xl, yl) => {
+        const yr = yl * Math.cos(th), zr = yl * Math.sin(th) + cssZ;
+        const k = P / (P - zr);
+        const q = world.transformPoint(new DOMPoint(cx + xl + dx, oy + yr + dy));
+        return { x: ccx + (q.x - ccx) * k, y: ccy + (q.y - ccy) * k, ok: k > 0 && isFinite(k) };
+      };
+      // Each glyph row lands between its projected top and bottom edges, so
+      // rows tile without gaps or overlaps; the opacity goes on once, after.
+      const proj = new OffscreenCanvas(comp.w, comp.h), pc = proj.getContext('2d');
+      for (let r = 0; r < gh; r++) {
+        const y0 = (r - pad - asc) - oy, y1 = y0 + 1;
+        const tl = project(-gw / 2, y0), tr = project(gw / 2, y0), bl = project(-gw / 2, y1);
+        if (!tl.ok || !bl.ok) continue;
+        const top = Math.min(tl.y, bl.y), hRow = Math.abs(bl.y - tl.y);
+        if (hRow < 1e-3) continue;
+        pc.drawImage(g, 0, r, gw, 1, tl.x, top, tr.x - tl.x, hRow);
+      }
+      ctx.save();
+      ctx.resetTransform();
+      ctx.globalAlpha *= op;
+      ctx.drawImage(proj, 0, 0);
+      ctx.restore();
+    });
+  }
+
   const rgb = (c, a = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a})`;
 
   // Draw one layer's own pixels (no effects) into a comp-sized canvas.
@@ -125,11 +228,16 @@
     const c = canvas(comp.w, comp.h);
     const ctx = c.getContext('2d');
     ctx.setTransform(worldMatrix(comp, layer, f));
-    if (layer.kind === 'text') drawText(ctx, textOf(comp, layer));
+    if (layer.kind === 'text') {
+      const t = textOf(comp, layer);
+      if (t.animators && t.animators.length) drawAnimated(ctx, t, layer, comp, f);
+      else drawText(ctx, t);
+    }
     else if (layer.kind === 'solid') { ctx.fillStyle = rgb(layer.color); ctx.fillRect(0, 0, layer.w, layer.h); }
     else if (layer.kind === 'footage') {
-      const img = images[layer.source];
-      if (!img) throw new Error(`preview: footage ${layer.source} is not an image`);
+      let img = images[layer.source];
+      if (Array.isArray(img)) img = img[Math.min(Math.max(f - layer.startFrame, 0), img.length - 1)];
+      if (!img) throw new Error(`preview: footage ${layer.source} wasn't loaded`);
       ctx.drawImage(img, 0, 0);
     } else if (layer.kind === 'comp') {
       ctx.drawImage(renderComp(layer.source, f - layer.startFrame), 0, 0);
@@ -253,8 +361,10 @@
     const comp = D.comps[id];
     const out = canvas(comp.w, comp.h);
     const ctx = out.getContext('2d');
+    const mattes = new Set(comp.layers.filter((l) => l.trackMatte).map((l) => l.trackMatte.layer));
     for (const layer of comp.layers) {
       if (layer.enabled === false || f < layer.inFrame || f >= layer.outFrame) continue;
+      if (mattes.has(layer.name)) continue; // a track matte isn't drawn itself
       const op = opacityOf(comp, layer, f) / 100;
       if (layer.kind === 'adjustment') {
         let below = canvas(comp.w, comp.h);
@@ -272,6 +382,24 @@
       }
       let c = layerPixels(comp, layer, f);
       for (const fx of layer.effects) c = applyEffect(c, fx, f, notes);
+      if (layer.trackMatte) {
+        const ml = comp.layers.find((l) => l.name === layer.trackMatte.layer);
+        let mc = canvas(comp.w, comp.h);
+        if (ml && f >= ml.inFrame && f < ml.outFrame) {
+          mc = layerPixels(comp, ml, f);
+          for (const fx of ml.effects) mc = applyEffect(mc, fx, f, notes);
+        }
+        if (layer.trackMatte.type === 'luma') {
+          pixels(mc, (d, i) => { d[i + 3] = lum(d[i], d[i + 1], d[i + 2]) * d[i + 3] / 255; });
+        }
+        const cc = c.getContext('2d');
+        cc.resetTransform();
+        cc.globalAlpha = ml ? opacityOf(comp, ml, f) / 100 : 1;
+        cc.globalCompositeOperation = 'destination-in';
+        cc.drawImage(mc, 0, 0);
+        cc.globalAlpha = 1;
+        cc.globalCompositeOperation = 'source-over';
+      }
       ctx.globalAlpha = op;
       ctx.globalCompositeOperation = BLEND[layer.blend] || 'source-over';
       ctx.drawImage(c, 0, 0);
@@ -282,20 +410,19 @@
   }
 
   window.hf2aePreview = {
-    async init(data, calibration) {
+    // videoFrames: footage id -> list of frame image URLs (extracted by verify.js).
+    async init(data, calibration, videoFrames = {}) {
       D = data;
       CAL = calibration;
+      const load = async (src) => { const img = new Image(); img.src = src; await img.decode(); return img; };
       for (const [id, fd] of Object.entries(D.footage)) {
-        if (!fd.still) continue;
-        const img = new Image();
-        img.src = fd.file;
-        await img.decode();
-        images[id] = img;
+        if (fd.still) images[id] = await load(fd.file);
+        else if (videoFrames[id]) images[id] = await Promise.all(videoFrames[id].map(load));
       }
       const fonts = new Set();
       for (const c of Object.values(D.comps)) {
         for (const l of c.layers) {
-          if (l.kind === 'text') fonts.add(`${l.text.style === 'italic' ? 'italic ' : ''}${l.text.weight || 400} ${l.text.size}px "${l.text.family}"`);
+          if (l.kind === 'text') fonts.add(fontString(l.text));
         }
       }
       for (const f of fonts) await document.fonts.load(f);

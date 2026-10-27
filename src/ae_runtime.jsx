@@ -76,6 +76,7 @@
 
   function fitValue(prop, v) {
     if (prop.propertyValueType == PropertyValueType.ThreeD && v.length == 2) return [v[0], v[1], 100];
+    if (prop.propertyValueType == PropertyValueType.ThreeD_SPATIAL && v.length == 2) return [v[0], v[1], 0];
     if (prop.propertyValueType == PropertyValueType.COLOR && v.length == 3) return [v[0], v[1], v[2], 1];
     return v;
   }
@@ -174,8 +175,62 @@
     doc.justification = t.justify == 'right' ? ParagraphJustification.RIGHT_JUSTIFY
       : t.justify == 'center' ? ParagraphJustification.CENTER_JUSTIFY : ParagraphJustification.LEFT_JUSTIFY;
     if (t.leading) { doc.autoLeading = false; doc.leading = t.leading; }
+    try { doc.fauxBold = !!t.fauxBold; doc.fauxItalic = !!t.fauxItalic; } catch (e) { warn(where + ': faux styles: ' + e); }
     src.setValue(doc);
     if (src.value.font != t.font) warn(where + ': font ' + t.font + ' (' + t.family + ') is not installed; AE used ' + src.value.font);
+  }
+
+  // Text Animators (from hfPlus.text.animate): one animator per selector, its
+  // properties set to their full-selection values, the Range Selector keyed.
+  var BASED = { chars: 1, words: 3, lines: 4 };
+  var GROUPING = { chars: 1, words: 2, lines: 3 };
+  function addAnimators(layer, list, where) {
+    var textProps = layer.property('ADBE Text Properties');
+    for (var i = 0; i < list.length; i++) {
+      var A = list[i], w = where + ' ' + A.name;
+      try {
+        var an = textProps.property('ADBE Text Animators').addProperty('ADBE Text Animator');
+        an.name = A.name;
+        var props = an.property('ADBE Text Animator Properties');
+        var add = function (match, value) {
+          try { props.addProperty(match).setValue(value); } catch (e) { warn(w + ': ' + match + ': ' + e); }
+        };
+        if (A.props.opacity !== undefined) add('ADBE Text Opacity', A.props.opacity);
+        if (A.props.position) add('ADBE Text Position 3D', A.props.position);
+        if (A.props.rotationX !== undefined) add('ADBE Text Rotation X', A.props.rotationX);
+        if (A.props.rotationY !== undefined) add('ADBE Text Rotation Y', A.props.rotationY);
+        if (A.props.rotation !== undefined) add('ADBE Text Rotation', A.props.rotation);
+        if (A.props.scale) add('ADBE Text Scale 3D', A.props.scale);
+        if (A.props.scramble) add('ADBE Text Character Offset', 25);
+
+        var sel = an.property('ADBE Text Selectors').addProperty('ADBE Text Selector');
+        setProp(findProp(sel, ['ADBE Text Percent Start', 'Start']), A.selector.start, null, w + ' start');
+        setProp(findProp(sel, ['ADBE Text Percent End', 'End']), A.selector.end, null, w + ' end');
+        setProp(findProp(sel, ['ADBE Text Percent Offset', 'Offset']), A.selector.offset, null, w + ' offset');
+        var adv = findProp(sel, ['ADBE Text Range Advanced', 'Advanced']);
+        var basedOn = adv && findProp(adv, ['ADBE Text Range Type2', 'Based On']);
+        if (basedOn) basedOn.setValue(BASED[A.based] || 1); else warn(w + ': no Based On');
+
+        if (A.props.scramble) {
+          // Scramble: a Wiggly Selector intersected with the range gives each
+          // selected character a random offset that changes every frame.
+          var wig = an.property('ADBE Text Selectors').addProperty('ADBE Text Wiggly Selector');
+          var mode = findProp(wig, ['ADBE Text Selector Mode', 'Mode']);
+          if (mode) mode.setValue(3);
+          var rate = findProp(wig, ['ADBE Text Temporal Freq', 'Wiggles/Second']);
+          if (rate) rate.setValue(FPS);
+          var corr = findProp(wig, ['ADBE Text Character Correlation', 'Correlation']);
+          if (corr) corr.setValue(0);
+        }
+        var more = textProps.property('ADBE Text More Options');
+        var grouping = more && findProp(more, ['ADBE Text Anchor Point Option', 'Anchor Point Grouping']);
+        if (grouping) grouping.setValue(GROUPING[A.based] || 1);
+        var align = more && findProp(more, ['ADBE Text Anchor Point Align', 'Grouping Alignment']);
+        if (align && A.groupingAlignment) align.setValue(A.groupingAlignment);
+      } catch (e) {
+        warn(w + ': ' + e);
+      }
+    }
   }
 
   function createLayer(comp, L, items, compData) {
@@ -219,7 +274,11 @@
       L = c.layers[i]; layer = made[i];
       if (!layer) continue;
       where = c.name + ' / ' + L.name;
-      if (L.kind == 'text') setText(layer, L.text, where);
+      if (L.kind == 'text') {
+        if (L.threeDPerChar) { try { layer.threeDPerChar = true; } catch (e) { warn(where + ': per-character 3D: ' + e); } }
+        setText(layer, L.text, where);
+        if (L.text.animators) addAnimators(layer, L.text.animators, where);
+      }
       var tr = layer.property('ADBE Transform Group');
       setProp(tr.property('ADBE Anchor Point'), L.anchor, null, where + ' anchor');
       setProp(tr.property('ADBE Position'), L.position, null, where + ' position');
@@ -237,6 +296,25 @@
       if (L.comment) layer.comment = L.comment;
       if (L.guide) layer.guideLayer = true;
       if (L.enabled === false) layer.enabled = false;
+    }
+    // Track mattes (the matte layer already sits right above its layer).
+    for (i = 0; i < c.layers.length; i++) {
+      L = c.layers[i]; layer = made[i];
+      if (!layer || !L.trackMatte) continue;
+      var matte = byName[L.trackMatte.layer];
+      var type = L.trackMatte.type == 'luma' ? TrackMatteType.LUMA : TrackMatteType.ALPHA;
+      try {
+        if (layer.setTrackMatte) layer.setTrackMatte(matte, type); // AE 2023 and later
+        else layer.trackMatteType = type;                          // the layer above is the matte
+      } catch (e) { warn(c.name + ' / ' + L.name + ': track matte: ' + e); }
+    }
+    // A camera stands in for CSS perspective: zoom = perspective distance.
+    if (c.camera) {
+      try {
+        var cam = comp.layers.addCamera('Camera', [c.w / 2, c.h / 2]);
+        cam.property('ADBE Camera Options Group').property('ADBE Camera Zoom').setValue(c.camera.zoom);
+        cam.property('ADBE Transform Group').property('ADBE Position').setValue([c.w / 2, c.h / 2, -c.camera.zoom]);
+      } catch (e) { warn(c.name + ': camera: ' + e); }
     }
   }
 

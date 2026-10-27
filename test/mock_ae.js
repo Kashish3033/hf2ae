@@ -14,14 +14,7 @@ class Prop {
   }
   property(n) { return typeof n === 'number' ? this.children[n - 1] : this.children.find((c) => c.matchName === n || c.name === n) || null; }
   addProperty(match) {
-    // Effects make any property asked for: the real list only exists in AE.
-    const p = new Prop(match, PVT.NO_VALUE, []);
-    p.property = function (n) {
-      if (typeof n === 'number') return this.children[n - 1];
-      let c = this.children.find((x) => x.matchName === n || x.name === n);
-      if (!c) { c = new Prop(n); this.children.push(c); this.numProperties++; }
-      return c;
-    };
+    const p = new LazyProp(match, PVT.NO_VALUE, []);
     this.children.push(p); this.numProperties++;
     return p;
   }
@@ -37,6 +30,17 @@ class Prop {
   setSpatialTangentsAtKey() {}
 }
 
+// Effects, text animators and their groups make any property asked for: the
+// real lists only exist in AE.
+class LazyProp extends Prop {
+  property(n) {
+    if (typeof n === 'number') return this.children[n - 1];
+    let c = this.children.find((x) => x.matchName === n || x.name === n);
+    if (!c) { c = new LazyProp(n); this.children.push(c); this.numProperties++; }
+    return c;
+  }
+}
+
 function makeLayerMock(kind, source) {
   const tr = new Prop('ADBE Transform Group', PVT.NO_VALUE, [
     new Prop('ADBE Anchor Point', PVT.TwoD_SPATIAL), new Prop('ADBE Position', PVT.TwoD_SPATIAL),
@@ -46,11 +50,13 @@ function makeLayerMock(kind, source) {
   const textDoc = new Prop('ADBE Text Document');
   textDoc.value = doc;
   textDoc.setValue = function (v) { this.value = { ...v }; };
-  const groups = [tr, new Prop('ADBE Effect Parade', PVT.NO_VALUE, []), new Prop('ADBE Text Properties', PVT.NO_VALUE, [textDoc])];
+  const groups = [tr, new Prop('ADBE Effect Parade', PVT.NO_VALUE, []), new LazyProp('ADBE Text Properties', PVT.NO_VALUE, [textDoc]),
+    new LazyProp('ADBE Camera Options Group', PVT.NO_VALUE, [])];
   return {
     kind, source, name: '', startTime: 0, inPoint: 0, outPoint: 0,
     property: (n) => groups.find((g) => g.matchName === n),
     setParentWithJump(p) { this.parent = p; },
+    setTrackMatte(m, type) { this.trackMatte = { layer: m, type }; },
   };
 }
 
@@ -63,6 +69,7 @@ export function mockAE(baseDir) {
       add: (src) => add(makeLayerMock('av', src)),
       addText: (t) => add(makeLayerMock('text', t)),
       addSolid: (col, n, sw, sh) => add({ ...makeLayerMock('solid'), w: sw, h: sh }),
+      addCamera: (n) => { const cam = add(makeLayerMock('camera')); cam.name = n; c.camera = cam; return cam; },
     };
     items.push(c);
     return c;
@@ -87,6 +94,7 @@ export function mockAE(baseDir) {
     KeyframeInterpolationType: { LINEAR: 1, BEZIER: 2, HOLD: 3 },
     PropertyValueType: PVT,
     ParagraphJustification: { LEFT_JUSTIFY: 1, RIGHT_JUSTIFY: 2, CENTER_JUSTIFY: 3 },
+    TrackMatteType: { ALPHA: 1, LUMA: 2 },
   };
   return { ctx, items, files };
 }

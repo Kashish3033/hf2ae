@@ -94,6 +94,10 @@ guesses, kept in `CALIBRATION` in `src/ffreader.js`:
 
 Also to verify in AE:
 
+- the sign of Text Animator Rotation X/Y and Position z (CSS z points at the viewer, AE z away; hf2ae flips both)
+- Grouping Alignment 0, −50% putting the character pivot in the middle of the em box, as CSS does
+- the property names for Character Offset, the Wiggly Selector and `setTrackMatte` (AE 2023+; older versions use the layer above)
+
 - the units Levels and Drop Shadow take from scripts (the report lists their ranges)
 - the right-aligned text's x position with negative tracking
 - Drop Shadow softness against the CSS blur
@@ -110,9 +114,19 @@ or expression x/y, `enable`), `zoompan` (`d=1`), `mix`, `concat`, `trim`,
 plus the no-ops (`format`, `setsar`, `setpts`, `fps`). Unsupported filters stop
 the conversion and name the filter.
 
-HyperFrames: plain-text `.clip` elements with opacity and 2D transforms
-animated by the composition's GSAP timeline. Pages that load `plus/*.js`
-helpers need those files next to the HTML.
+HyperFrames:
+- Text anywhere in the page (inside wrapper clips too) and SVG `<text>`, with
+  opacity and 2D transforms from the GSAP timeline. A synthetic bold or italic
+  becomes AE Faux Bold / Faux Italic.
+- `<video>` and `<img>` (downloaded to `src/remote/`), fitted like `object-fit`.
+- The page's background colour becomes a solid.
+- Frameo's `hfPlus` helpers (`plus/*.js`) only exist inside its render
+  service, so the reader stands in for them and records the calls:
+  - `hfPlus.text.animate` becomes an AE **Text Animator** with a **Range
+    Selector** (start/end/offset keyed; based on characters, words or lines),
+    per-character 3D and a camera whose zoom is the CSS `perspective`.
+  - `hfPlus.composite.matte` becomes a **track matte** (alpha or luma).
+  - Any other helper call is reported in the notes as not mapped yet.
 
 ## Verify without After Effects
 
@@ -138,6 +152,16 @@ Results for the punch demo:
 | Punch Title (HyperFrames → AE text layers) | the HTML in Chrome | 56.5 dB mean, worst 54.5 |
 | Punch Title | Frameo's webm render | 36 dB (the render service draws text 1px higher; VP9 4:2:0 alone costs ~41 dB) |
 | Full shot | ffmpeg render (no grain, yuv444p) | flashes 31–34, money 32, zoom blur 30, push 27.5 |
+
+HyperFrames type tests from Frameo's "HF Motion Studio Test" (`examples/hf_motion`,
+fetch the renders with `fetch.sh`), against Frameo's own MP4 renders:
+
+| Render | Becomes in AE | PSNR |
+|---|---|---|
+| SOLVAY: video inside the text, text scales 1.2→1 | video layer with an alpha track matte from the SVG text; scale keys pivoted at the SVG origin | 46.2 dB mean, worst 44.3 |
+| Per-word reveal: words fade and rise | Text Animator by words: Opacity 0, Position y 30 | 43.1 dB mean, worst 42.3 |
+| ICONIC: characters flip up in 3D | Text Animator by characters: Opacity 0, Position z, Rotation X; per-character 3D; camera zoom 900 | 38.6 dB mean, 36.6 while animating |
+| 1965: characters scramble then settle | Text Animator: Character Offset with a Wiggly Selector | 47.5 dB once settled; the scrambling frames differ (both are random) |
 
 The push frames are lower because ffmpeg's `zoompan` crops at whole pixels
 (and at even pixels in yuv420p), so its push steps by up to 1–2px a frame.

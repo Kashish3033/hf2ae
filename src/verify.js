@@ -69,11 +69,24 @@ export async function verify(outDir, { comp: compName, ref, bg = '#808080' }) {
   const [compId, comp] = Object.entries(data.comps).find(([, c]) => c.name === compName) || [];
   if (!comp) throw new Error(`no comp named "${compName}" (have: ${Object.values(data.comps).map((c) => c.name).join(', ')})`);
   const dir = path.join(outDir, 'verify', compName.replace(/[^\w\-]+/g, '_'));
+  fs.rmSync(path.join(outDir, 'verify', '_frames'), { recursive: true, force: true });
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
 
   const stylesheets = [...new Set(Object.values(data.comps).flatMap((c) => c.stylesheets || []))];
   fs.writeFileSync(path.join(outDir, 'preview.html'), `<!doctype html><meta charset="utf-8">${stylesheets.map((h) => `<link rel="stylesheet" href="${h}">`).join('')}<body></body>`);
+
+  // Video footage on enabled layers: extract its frames for the preview.
+  const videoFrames = {};
+  for (const [id, fd] of Object.entries(data.footage)) {
+    if (fd.still) continue;
+    const used = Object.values(data.comps).some((c) => c.layers.some((l) => l.source === id && l.enabled !== false));
+    if (!used) continue;
+    const fdir = path.join('verify', '_frames', id);
+    fs.mkdirSync(path.join(outDir, fdir), { recursive: true });
+    ffmpeg(['-i', path.join(outDir, fd.file), '-vf', `fps=${data.fps}`, '-start_number', '0', path.join(outDir, fdir, '%04d.png')]);
+    videoFrames[id] = fs.readdirSync(path.join(outDir, fdir)).filter((n) => n.endsWith('.png')).sort().map((n) => `${fdir}/${n}`);
+  }
 
   // 1. Preview frames.
   const server = await serve(outDir);
@@ -83,7 +96,7 @@ export async function verify(outDir, { comp: compName, ref, bg = '#808080' }) {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.address().port}/preview.html`, { waitUntil: 'networkidle0', timeout: 60000 });
     await page.addScriptTag({ path: PAGE_SCRIPT });
-    fonts = await page.evaluate((d, cal) => window.hf2aePreview.init(d, cal), data, CALIBRATION);
+    fonts = await page.evaluate((d, cal, vf) => window.hf2aePreview.init(d, cal, vf), data, CALIBRATION, videoFrames);
     for (let f = 0; f < comp.frames; f++) {
       const b64 = await page.evaluate((id, n, color) => window.hf2aePreview.frame(id, n, color), compId, f, bg);
       fs.writeFileSync(path.join(dir, `preview_${String(f).padStart(3, '0')}.png`), Buffer.from(b64, 'base64'));

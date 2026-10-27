@@ -13,7 +13,7 @@ export function summarize(data) {
   const walk = (id, depth) => {
     const c = data.comps[id];
     const pad = '  '.repeat(depth);
-    lines.push(`${pad}▣ ${c.name}  ${c.w}x${c.h}, ${fmtFrames(c.frames, data.fps)}`);
+    lines.push(`${pad}▣ ${c.name}  ${c.w}x${c.h}, ${fmtFrames(c.frames, data.fps)}${c.camera ? `  [camera zoom ${c.camera.zoom}]` : ''}`);
     for (const l of [...c.layers].reverse()) {
       const anim = ['position', 'scale', 'opacity', 'rotation', 'anchor'].map((k) => propNote(k, l[k])).filter(Boolean);
       const fx = l.effects.map((e) => e.name + (Object.values(e.props).some((p) => p && p.keys) ? '*' : ''));
@@ -21,6 +21,9 @@ export function summarize(data) {
         l.kind,
         l.blend && l.blend !== 'normal' ? `blend ${l.blend}` : null,
         l.parent ? `parent → ${l.parent}` : null,
+        l.trackMatte ? `${l.trackMatte.type} matte: ${l.trackMatte.layer}` : null,
+        l.threeDPerChar ? 'per-character 3D' : null,
+        l.text && l.text.animators ? l.text.animators.map((a) => `${a.name} by ${a.based}: ${Object.keys(a.props).join('/')}`).join('; ') : null,
         l.enabled === false ? 'off' : null,
       ].filter(Boolean).join(', ');
       lines.push(`${pad}  • ${l.name}  [${tags}]  ${l.inFrame}–${l.outFrame}`

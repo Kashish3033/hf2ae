@@ -1,0 +1,8 @@
+{
+  "name": "a5_solvay",
+  "fps": 24,
+  "source": "Frameo › HF Motion Studio Test › A Type & Vector",
+  "inputs": [ { "file": "src/a5_solvay.mp4", "name": "a5_solvay", "hyperframes": "src/a5_solvay.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

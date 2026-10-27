@@ -33,6 +33,24 @@ function probe(file) {
   return { w: s.width, h: s.height, frames: STILL.test(file) ? 1 : parseInt(s.nb_read_packets, 10) };
 }
 
+// A <video>/<img> the HyperFrames page loads: download it once next to the
+// shot (src/remote/) and register it as footage.
+async function resolveMedia(url, cacheDir, footage) {
+  const u = new URL(url);
+  const file = u.protocol === 'file:' ? fileURLToPath(u) : path.join(cacheDir, path.basename(u.pathname));
+  if (u.protocol !== 'file:' && !fs.existsSync(file)) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`download ${url}: HTTP ${res.status}`);
+    fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+  }
+  const existing = Object.values(footage).find((f) => f.path === file);
+  if (existing) return existing;
+  const id = newId('ftg');
+  footage[id] = { id, name: path.basename(file), file, path: file, ...probe(file), still: STILL.test(file) };
+  return footage[id];
+}
+
 export async function convert(shotPath, outDir) {
   const dir = path.dirname(path.resolve(shotPath));
   const shot = JSON.parse(fs.readFileSync(shotPath, 'utf8'));
@@ -53,6 +71,7 @@ export async function convert(shotPath, outDir) {
     if (input.hyperframes) {
       const hf = await readHyperframes(path.resolve(dir, input.hyperframes), {
         fps, name, reference: { id, w: info.w, h: info.h },
+        resolveMedia: (url) => resolveMedia(url, path.join(dir, 'src', 'remote'), footage),
       });
       notes.push(...hf.notes);
       Object.assign(reader.comps, hf.comps);
