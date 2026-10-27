@@ -46,7 +46,16 @@
     if (f >= ks[ks.length - 1].f) return ks[ks.length - 1].v;
     for (let i = 0; i < ks.length - 1; i++) {
       const k0 = ks[i], k1 = ks[i + 1];
-      if (f > k1.f) continue;
+      if (f >= k1.f) continue; // on a key's own frame, the next segment starts
+      // Spatial props (position) carry one ease for the whole path: speed is
+      // along the straight line from k0 to k1, as in AE.
+      const scalarEase = (e) => e && !Array.isArray(e);
+      if (Array.isArray(k0.v) && (scalarEase(k0.easeOut) || scalarEase(k1.easeIn))) {
+        const D = Math.hypot(...k0.v.map((a, d) => k1.v[d] - a));
+        if (D < 1e-9) return k0.v;
+        const t = segment(k0, k1, f, 0, 0, D) / D;
+        return k0.v.map((a, d) => a + (k1.v[d] - a) * t);
+      }
       if (Array.isArray(k0.v)) return k0.v.map((a, d) => segment(k0, k1, f, d, a, k1.v[d]));
       return segment(k0, k1, f, 0, k0.v, k1.v);
     }
@@ -103,7 +112,8 @@
     return c;
   }
 
-  const fontString = (t) => `${t.style === 'italic' || t.fauxItalic ? 'italic ' : ''}${t.fauxBold ? 700 : (t.weight || 400)} ${t.size}px "${t.family}"`;
+  const GENERIC = ['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'];
+  const fontString = (t) => `${t.style === 'italic' || t.fauxItalic ? 'italic ' : ''}${t.fauxBold ? 700 : (t.weight || 400)} ${t.size}px ${GENERIC.includes(t.family) ? t.family : `"${t.family}"`}`;
 
   function drawText(ctx, t) {
     ctx.font = fontString(t);
@@ -223,6 +233,189 @@
 
   const rgb = (c, a = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a})`;
 
+
+  // ---- shape layers ------------------------------------------------------------
+
+  // Polystar vertices, first point straight up, clockwise (as AE draws them).
+  function starPoints(n, outer, inner, [cx, cy], polygon) {
+    const pts = [];
+    const count = polygon ? n : n * 2;
+    for (let i = 0; i < count; i++) {
+      const r = polygon || i % 2 === 0 ? outer : inner;
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / count;
+      pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+    return pts;
+  }
+
+  // Miter offset of a closed polygon by d (outward when d > 0).
+  function offsetPolygon(pts, d) {
+    const n = pts.length;
+    let area = 0;
+    for (let i = 0; i < n; i++) { const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % n]; area += x1 * y2 - x2 * y1; }
+    const sgn = area > 0 ? 1 : -1; // y-down: positive area = clockwise on screen
+    const lines = pts.map((p, i) => {
+      const q = pts[(i + 1) % n];
+      const dx = q[0] - p[0], dy = q[1] - p[1], len = Math.hypot(dx, dy);
+      const nx = (dy / len) * sgn, ny = (-dx / len) * sgn;
+      return [[p[0] + nx * d, p[1] + ny * d], [q[0] + nx * d, q[1] + ny * d]];
+    });
+    return lines.map((l, i) => {
+      const [a, b] = lines[(i - 1 + n) % n], [c, e] = l;
+      const d1 = [b[0] - a[0], b[1] - a[1]], d2 = [e[0] - c[0], e[1] - c[1]];
+      const den = d1[0] * d2[1] - d1[1] * d2[0];
+      if (Math.abs(den) < 1e-9) return c;
+      const t = ((c[0] - a[0]) * d2[1] - (c[1] - a[1]) * d2[0]) / den;
+      return [a[0] + d1[0] * t, a[1] + d1[1] * t];
+    });
+  }
+
+  function polyPath(pts) { const p = new Path2D(); pts.forEach(([x, y], i) => (i ? p.lineTo(x, y) : p.moveTo(x, y))); p.closePath(); return p; }
+
+  function geomPath(g) {
+    if (g.poly) return polyPath(g.poly);
+    const p = new Path2D();
+    if (g.ellipse) p.ellipse(g.ellipse[0], g.ellipse[1], Math.max(g.ellipse[2], 0), Math.max(g.ellipse[3], 0), 0, 0, 2 * Math.PI);
+    if (g.rect) { const [x, y, w, h, r] = g.rect; p.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2)); }
+    return p;
+  }
+
+  // Draw a group's contents. Geometry collects until an operator or a
+  // paint uses it; merges are done on raster masks (canvas compositing).
+  // Points of a geometry, mapped through m (to bake a group's transform).
+  function mapGeom(g, m) {
+    if (g.raster || m.isIdentity) return g;
+    const pt = ([x, y]) => { const q = m.transformPoint(new DOMPoint(x, y)); return [q.x, q.y]; };
+    const toPoly = (gg) => {
+      if (gg.poly) return gg.poly;
+      if (gg.ellipse) { const [cx, cy, rx, ry] = gg.ellipse; return Array.from({ length: 96 }, (_, i) => [cx + rx * Math.cos(i * Math.PI / 48), cy + ry * Math.sin(i * Math.PI / 48)]); }
+      const [x, y, w, h] = gg.rect; return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+    };
+    return { poly: toPoly(g).map(pt) };
+  }
+
+  // Returns the group's geometry: in AE a Fill or Stroke also paints the
+  // paths of groups above it in the same group.
+  function drawContents(ctx, items, f, compW, compH) {
+    let geoms = [];
+    for (const it of items) {
+      const v = (k) => value(it[k], f);
+      if (it.type === 'group') {
+        ctx.save();
+        let gm = new DOMMatrix();
+        if (it.skew) { const k = Math.tan((value(it.skew, f) || 0) * Math.PI / 180); gm = new DOMMatrix([1, 0, k, 1, 0, 0]); ctx.transform(1, 0, k, 1, 0, 0); }
+        const inner = drawContents(ctx, it.items, f, compW, compH);
+        ctx.restore();
+        geoms.push(...inner.map((g) => mapGeom(g, gm)));
+        continue;
+      }
+      if (it.type === 'rect') { const [w, h] = v('size'), [x, y] = it.position ? v('position') : [0, 0]; geoms.push({ rect: [x - w / 2, y - h / 2, w, h, it.roundness ? v('roundness') : 0] }); }
+      else if (it.type === 'ellipse') { const [w, h] = v('size'), [x, y] = it.position ? v('position') : [0, 0]; geoms.push({ ellipse: [x, y, w / 2, h / 2] }); }
+      else if (it.type === 'star') geoms.push({ poly: starPoints(v('points'), v('outer'), it.inner ? v('inner') : 0, it.position ? v('position') : [0, 0], it.star === 'polygon') });
+      else if (it.type === 'offset') {
+        const d = v('amount');
+        geoms = geoms.map((g) => {
+          if (g.poly) return { poly: offsetPolygon(g.poly, d) };
+          if (g.ellipse) return { ellipse: [g.ellipse[0], g.ellipse[1], g.ellipse[2] + d, g.ellipse[3] + d] };
+          notes.add('preview offsets polygons and ellipses only');
+          return g;
+        });
+      } else if (it.type === 'merge') {
+        const m = new OffscreenCanvas(compW, compH), mc = m.getContext('2d');
+        mc.setTransform(ctx.getTransform());
+        const op = { add: 'source-over', intersect: 'destination-in', exclude: 'xor', subtract: 'destination-out' }[it.mode] || 'source-over';
+        geoms.forEach((g, i) => {
+          mc.globalCompositeOperation = i === 0 ? 'source-over' : op;
+          if (g.raster) { mc.save(); mc.resetTransform(); mc.drawImage(g.raster, 0, 0); mc.restore(); }
+          else { mc.fillStyle = '#fff'; mc.fill(geomPath(g)); }
+        });
+        geoms = [{ raster: m }];
+      } else if (it.type === 'fill') {
+        const color = rgb(v('color'), (it.opacity ? v('opacity') : 100) / 100);
+        for (const g of geoms) {
+          if (g.raster) {
+            const r = new OffscreenCanvas(compW, compH), rc = r.getContext('2d');
+            rc.drawImage(g.raster, 0, 0);
+            rc.globalCompositeOperation = 'source-in';
+            rc.fillStyle = color;
+            rc.fillRect(0, 0, compW, compH);
+            ctx.save(); ctx.resetTransform(); ctx.drawImage(r, 0, 0); ctx.restore();
+          } else {
+            ctx.fillStyle = color;
+            ctx.fill(geomPath(g), it.rule === 'evenodd' ? 'evenodd' : 'nonzero');
+          }
+        }
+      } else if (it.type === 'stroke') {
+        ctx.strokeStyle = rgb(v('color'), (it.opacity ? v('opacity') : 100) / 100);
+        ctx.lineWidth = v('width');
+        ctx.lineJoin = 'miter';
+        for (const g of geoms) {
+          if (g.raster) { notes.add('preview cannot stroke a merged path'); continue; }
+          ctx.stroke(geomPath(g));
+        }
+      }
+    }
+    return geoms;
+  }
+
+  // Mask paths: linear between keys (hf2ae writes linear mask keys).
+  function maskPath(mask, f) {
+    const P = mask.path;
+    if (!P.keys) return polyPath(P.value);
+    const ks = P.keys;
+    if (f <= ks[0].f) return polyPath(ks[0].v);
+    for (let i = 0; i < ks.length - 1; i++) {
+      if (f > ks[i + 1].f) continue;
+      const t = ks[i].out === 'hold' ? 0 : (f - ks[i].f) / (ks[i + 1].f - ks[i].f);
+      return polyPath(ks[i].v.map((p, j) => [p[0] + (ks[i + 1].v[j][0] - p[0]) * t, p[1] + (ks[i + 1].v[j][1] - p[1]) * t]));
+    }
+    return polyPath(ks[ks.length - 1].v);
+  }
+
+  // The 'gradient' effect as the AE script builds it (Gradient Ramp from an
+  // Angle/Radius slider; conic via Polar Coordinates), in the solid's space.
+  function paintGradient(ctx, fx, w, h, f) {
+    const P = fx.props, mode = P.mode.value;
+    const [cx, cy] = value(P.center, f);
+    const p0 = P.startAt.value, p1 = P.endAt.value;
+    let g;
+    if (mode === 'radial') {
+      const R = value(P.radius, f);
+      g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(R * p1, 0.001));
+      g.addColorStop(0, rgb(P.startColor.value));
+      g.addColorStop(1, rgb(P.endColor.value));
+    } else if (mode === 'conic') {
+      g = ctx.createConicGradient((value(P.angle, f) - 90) * Math.PI / 180, cx, cy);
+      g.addColorStop(p0, rgb(P.startColor.value));
+      g.addColorStop(p1, rgb(P.endColor.value));
+    } else {
+      const a = value(P.angle, f) * Math.PI / 180, d = [Math.sin(a), -Math.cos(a)];
+      const L = Math.abs(w * d[0]) + Math.abs(h * d[1]);
+      g = ctx.createLinearGradient(cx + d[0] * L * (p0 - 0.5), cy + d[1] * L * (p0 - 0.5), cx + d[0] * L * (p1 - 0.5), cy + d[1] * L * (p1 - 0.5));
+      g.addColorStop(0, rgb(P.startColor.value));
+      g.addColorStop(1, rgb(P.endColor.value));
+    }
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // CC Light Sweep as hf2ae maps it: a band through `center`, its own
+  // direction, `width` either side, over the layer's pixels.
+  function paintSweep(ctx, fx, w, h, f) {
+    const P = fx.props;
+    const [cx, cy] = value(P.center, f);
+    const a = (value(P.direction, f) + 90) * Math.PI / 180, n = [Math.sin(a), -Math.cos(a)];
+    const half = value(P.width, f);
+    const g = ctx.createLinearGradient(cx - n[0] * half, cy - n[1] * half, cx + n[0] * half, cy + n[1] * half);
+    const c = value(P.color, f), k = value(P.intensity, f) / 100;
+    g.addColorStop(0, rgb(c, 0)); g.addColorStop(0.5, rgb(c, k)); g.addColorStop(1, rgb(c, 0));
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+
   // Draw one layer's own pixels (no effects) into a comp-sized canvas.
   function layerPixels(comp, layer, f) {
     const c = canvas(comp.w, comp.h);
@@ -233,7 +426,15 @@
       if (t.animators && t.animators.length) drawAnimated(ctx, t, layer, comp, f);
       else drawText(ctx, t);
     }
-    else if (layer.kind === 'solid') { ctx.fillStyle = rgb(layer.color); ctx.fillRect(0, 0, layer.w, layer.h); }
+    else if (layer.kind === 'solid') {
+      ctx.fillStyle = rgb(layer.color);
+      ctx.fillRect(0, 0, layer.w, layer.h);
+      // Generators replace the solid's pixels in its own space.
+      for (const fx of layer.effects) {
+        if (fx.type === 'gradient') paintGradient(ctx, fx, layer.w, layer.h, f);
+        if (fx.type === 'lightSweep') paintSweep(ctx, fx, layer.w, layer.h, f);
+      }
+    } else if (layer.kind === 'shape') drawContents(ctx, layer.contents, f, comp.w, comp.h);
     else if (layer.kind === 'footage') {
       let img = images[layer.source];
       if (Array.isArray(img)) img = img[Math.min(Math.max(f - layer.startFrame, 0), img.length - 1)];
@@ -241,6 +442,15 @@
       ctx.drawImage(img, 0, 0);
     } else if (layer.kind === 'comp') {
       ctx.drawImage(renderComp(layer.source, f - layer.startFrame), 0, 0);
+    }
+    if (layer.masks && layer.masks.length) {
+      ctx.setTransform(worldMatrix(comp, layer, f));
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.fillStyle = '#fff';
+      const all = new Path2D();
+      for (const m of layer.masks) all.addPath(maskPath(m, f));
+      ctx.fill(all);
+      ctx.globalCompositeOperation = 'source-over';
     }
     return c;
   }
@@ -343,6 +553,9 @@
       case 'noise':
         notes.add('Noise (grain) is random, so the preview leaves it out');
         return c;
+      case 'gradient':
+      case 'lightSweep':
+        return c; // drawn as the solid's pixels
       default:
         notes.add(`preview has no ${fx.type} effect`);
         return c;

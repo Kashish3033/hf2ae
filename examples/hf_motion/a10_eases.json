@@ -1,0 +1,8 @@
+{
+  "name": "a10_eases",
+  "fps": 24,
+  "source": "Frameo › HF Motion Studio Test › A Type & Vector",
+  "inputs": [ { "file": "src/a10_eases.mp4", "name": "a10_eases", "hyperframes": "src/a10_eases.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

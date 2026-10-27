@@ -114,3 +114,38 @@ test('hf motion renders map to text animators, a camera and a track matte', { sk
   const v = built.a5_solvay.layerList.find((l) => l.name === 'v');
   assert.equal(v.trackMatte.layer.name, 'SOLVAY');
 });
+
+test('hf vector renders map to shape layers, merge paths, gradients and masks', { skip: !hasMotion && 'run examples/hf_motion/fetch.sh first' }, async () => {
+  const { convert } = await import('../src/cli.js');
+  const out = {};
+  for (const n of ['a6_shapes', 'a7_gradients', 'a8_paintpath', 'a10_eases']) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `hf2ae-${n}-`));
+    const { jsxPath } = await convert(path.join(MOTION, `${n}.json`), dir);
+    const data = JSON.parse(fs.readFileSync(path.join(dir, 'timeline.json'), 'utf8'));
+    const { ctx, files } = mockAE(dir);
+    vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
+    const report = Object.values(files)[0].join('\n');
+    const warnings = report.split('\n').filter((l) => /: /.test(l) && !/^(effect |  |hf2ae report|After Effects)/.test(l));
+    assert.deepEqual(warnings, [], n);
+    out[n] = Object.values(data.comps).flatMap((c) => c.layers);
+  }
+  const find = (n, name) => out[n].find((l) => l.name === name);
+  // union / intersect / exclude -> a group ending in Merge Paths
+  const flat = (items) => items.flatMap((it) => (it.type === 'group' ? [it, ...flat(it.items)] : [it]));
+  for (const [id, mode] of [['pu', 'add'], ['pi', 'intersect'], ['px', 'exclude']]) {
+    assert.ok(flat(find('a6_shapes', id).contents).some((it) => it.type === 'merge' && it.mode === mode), id);
+  }
+  assert.ok(flat(find('a6_shapes', 'op').contents).some((it) => it.type === 'offset'));
+  const sides = flat(find('a6_shapes', 'lp').contents).find((it) => it.type === 'star').points;
+  assert.deepEqual(sides.keys.map((k) => k.v), [3, 4, 5, 6, 7, 8]);
+  assert.ok(sides.keys.every((k) => k.out === 'hold'));
+  // gradients: radial driven by Radius, conic by Angle
+  assert.equal(find('a7_gradients', 'rad').effects[0].props.mode.value, 'radial');
+  assert.ok(find('a7_gradients', 'rad').effects[0].props.radius.keys);
+  assert.equal(find('a7_gradients', 'con').effects[0].props.mode.value, 'conic');
+  // paintPath -> a keyed mask; matchState -> keyed size and colour
+  assert.ok(find('a8_paintpath', 'stroke').masks[0].path.keys);
+  const bx = flat(find('a8_paintpath', 'bx').contents);
+  assert.ok(bx.find((it) => it.type === 'rect').size.keys);
+  assert.ok(bx.find((it) => it.type === 'fill').color.keys);
+});

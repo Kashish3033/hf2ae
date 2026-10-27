@@ -17,6 +17,11 @@ export function summarize(data) {
     for (const l of [...c.layers].reverse()) {
       const anim = ['position', 'scale', 'opacity', 'rotation', 'anchor'].map((k) => propNote(k, l[k])).filter(Boolean);
       const fx = l.effects.map((e) => e.name + (Object.values(e.props).some((p) => p && p.keys) ? '*' : ''));
+      // Animated shape contents: "Rectangle Path.size 2 keys"
+      const walkC = (items) => (items || []).flatMap((it) => (it.type === 'group' ? walkC(it.items)
+        : Object.entries(it).filter(([, p]) => p && p.keys).map(([k, p]) => `${it.name}.${k} ${p.keys.length} keys`)));
+      anim.push(...walkC(l.contents));
+      if (l.masks) anim.push(...l.masks.filter((m) => m.path.keys).map((m) => `mask ${m.name} ${m.path.keys.length} keys`));
       const tags = [
         l.kind,
         l.blend && l.blend !== 'normal' ? `blend ${l.blend}` : null,

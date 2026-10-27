@@ -1,0 +1,32 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;width:1280px;height:720px;background:#111;overflow:hidden}
+#root{position:relative;width:1280px;height:720px;background:#111}
+#st{position:absolute;left:0;top:0;width:1280px;height:720px}
+.lab{position:absolute;left:16px;width:400px;font:14px monospace;color:#bbb;white-space:pre}
+.dot{position:absolute;left:430px;width:24px;height:24px;margin-top:-12px;border-radius:50%;background:#FFD700}
+.rail{position:absolute;left:442px;width:760px;height:1px;background:#333}
+.end{position:absolute;left:1202px;width:2px;height:30px;margin-top:-15px;background:#555}
+#err{position:absolute;left:16px;bottom:6px;font:14px monospace;color:#f66;white-space:pre-wrap}
+</style></head><body>
+<div id="root" data-composition-id="main" data-width="1280" data-height="720" data-start="0" data-duration="6">
+<div id="st" class="clip" data-start="0" data-duration="6" data-track-index="1"><div id="err"></div></div></div>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="plus/ease.js"></script>
+<script>
+var tl=gsap.timeline({paused:true});window.__timelines={main:tl};
+var A=hfPlus.ease, st=document.getElementById('st');
+var list=[['bezier(.2,.8,.2,1)',function(){return A.bezier(0.2,0.8,0.2,1);}],['ae()',function(){return A.ae();}],['easyEaseIn',function(){return A.easyEaseIn;}],['easyEaseOut',function(){return A.easyEaseOut;}],['motionIn',function(){return A.motionIn;}],['motionMove',function(){return A.motionMove;}],['springBouncy',function(){return A.springBouncy;}],['easeOutBack',function(){return A.easeOutBack;}]];
+list.forEach(function(it,i){
+  var y=70+i*78, lab=document.createElement('div');lab.className='lab';lab.style.top=(y-10)+'px';
+  var rail=document.createElement('div');rail.className='rail';rail.style.top=y+'px';
+  var end=document.createElement('div');end.className='end';end.style.top=y+'px';
+  var dot=document.createElement('div');dot.className='dot';dot.style.top=y+'px';
+  st.appendChild(rail);st.appendChild(end);st.appendChild(dot);st.appendChild(lab);
+  try{var f=it[1]();if(typeof f!=='function')throw new Error('not a function: '+typeof f);
+    lab.textContent=it[0]+'  '+[0.25,0.5,0.75].map(function(p){return f(p).toFixed(3);}).join(' / ');
+    tl.fromTo(dot,{x:0},{x:760,duration:2,ease:f,immediateRender:false},0.5);
+  }catch(e){lab.textContent=it[0]+' ERR '+e.message;}
+});
+tl.set({},{},6);
+</script></body></html>

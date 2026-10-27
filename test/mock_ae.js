@@ -51,7 +51,8 @@ function makeLayerMock(kind, source) {
   textDoc.value = doc;
   textDoc.setValue = function (v) { this.value = { ...v }; };
   const groups = [tr, new Prop('ADBE Effect Parade', PVT.NO_VALUE, []), new LazyProp('ADBE Text Properties', PVT.NO_VALUE, [textDoc]),
-    new LazyProp('ADBE Camera Options Group', PVT.NO_VALUE, [])];
+    new LazyProp('ADBE Camera Options Group', PVT.NO_VALUE, []), new LazyProp('ADBE Root Vectors Group', PVT.NO_VALUE, []),
+    new LazyProp('ADBE Mask Parade', PVT.NO_VALUE, [])];
   return {
     kind, source, name: '', startTime: 0, inPoint: 0, outPoint: 0,
     property: (n) => groups.find((g) => g.matchName === n),
@@ -69,6 +70,7 @@ export function mockAE(baseDir) {
       add: (src) => add(makeLayerMock('av', src)),
       addText: (t) => add(makeLayerMock('text', t)),
       addSolid: (col, n, sw, sh) => add({ ...makeLayerMock('solid'), w: sw, h: sh }),
+      addShape: () => add(makeLayerMock('shape')),
       addCamera: (n) => { const cam = add(makeLayerMock('camera')); cam.name = n; c.camera = cam; return cam; },
     };
     items.push(c);
@@ -95,6 +97,8 @@ export function mockAE(baseDir) {
     PropertyValueType: PVT,
     ParagraphJustification: { LEFT_JUSTIFY: 1, RIGHT_JUSTIFY: 2, CENTER_JUSTIFY: 3 },
     TrackMatteType: { ALPHA: 1, LUMA: 2 },
+    MaskMode: { ADD: 1 },
+    Shape: function () { this.vertices = []; this.closed = false; },
   };
   return { ctx, items, files };
 }

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=block" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; width:1280px; height:720px; background:#111; overflow:hidden; }
+  #root { position:relative; width:1280px; height:720px; background:#111; }
+  #wrap {
+    position:absolute; left:0; top:0; width:1280px; height:720px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #h {
+    display:block; text-align:center; white-space:pre;
+    font-family:'Anton', sans-serif; font-size:140px; line-height:1; color:#fff;
+    margin:0; letter-spacing:0;
+    -webkit-background-clip:text !important; background-clip:text !important; -webkit-text-fill-color:transparent;
+  }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-width="1280" data-height="720" data-start="0" data-duration="6">
+  <div id="wrap" class="clip" data-start="0" data-duration="6" data-track-index="1"><div id="mv" style="display:inline-block"><h1 id="h">THE REAL WOLF</h1></div></div>
+  <div id="src" class="clip" data-start="0" data-duration="6" data-track-index="3" style="position:absolute;left:20px;top:10px;width:1240px;font:11px/13px monospace;color:#777;white-space:pre-wrap;word-break:break-all"></div>
+  <div id="cap" class="clip" data-start="0" data-duration="6" data-track-index="2" style="position:absolute;left:20px;bottom:14px;font:16px monospace;color:#666"></div>
+</div>
+<script>window.onerror=function(m){document.getElementById('cap').textContent='ERR '+m;};</script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="plus/ease.js"></script>
+<script src="plus/text.js"></script>
+<script src="plus/gradient.js"></script>
+<script src="plus/color.js"></script>
+<script src="plus/composite.js"></script>
+<script src="plus/fx.js"></script>
+<script src="plus/fx-blur.js"></script>
+<script src="plus/light.js"></script>
+<script src="plus/finish.js"></script>
+<script>
+  var tl = gsap.timeline({paused:true});
+  var h=document.getElementById('h'), msg=[];
+  try{ var gp=hfPlus.gradient(h,{type:'linear',angle:0,stops:['#FFD700','#FF4500']}); msg.push('gradient keys '+Object.keys(gp||{}).join(',')); tl.to(gp,{angle:90,duration:6,ease:'none'},0); }catch(e){msg.push('GRADIENT ERR '+e.message);}
+  msg.push('sweep '+typeof hfPlus.sweep);
+  try{ var sw=hfPlus.sweep(h,{text:true,position:-20}); tl.fromTo(sw,{position:-20},{position:120,duration:0.6,ease:'none',immediateRender:false},1.0); msg.push('sweep returned '+(sw?Object.keys(sw).join(','):String(sw))); }catch(e){msg.push('SWEEP ERR '+e.message);}
+  document.getElementById('cap').textContent='A4 | '+msg.join(' | ');
+  if(0)document.getElementById('src').textContent=hfPlus.sweep?('sweep: '+hfPlus.sweep.toString().slice(0,1400)+'\n-- band: '+(hfPlus.sweep.band?hfPlus.sweep.band.toString().slice(0,500):'none')):'no hfPlus.sweep';
+  tl.set({}, {}, 6);
+  window.__timelines = window.__timelines || {};
+  window.__timelines['main'] = tl;
+</script>
+</body>
+</html>

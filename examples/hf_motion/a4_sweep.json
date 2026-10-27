@@ -1,0 +1,8 @@
+{
+  "name": "a4_sweep",
+  "fps": 24,
+  "source": "Frameo › HF Motion Studio Test › A Type & Vector",
+  "inputs": [ { "file": "src/a4_sweep.mp4", "name": "a4_sweep", "hyperframes": "src/a4_sweep.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

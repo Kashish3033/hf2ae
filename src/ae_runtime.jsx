@@ -36,6 +36,11 @@
       rr: ['Red-Red'], rg: ['Red-Green'], rb: ['Red-Blue'], gr: ['Green-Red'], gg: ['Green-Green'], gb: ['Green-Blue'],
       br: ['Blue-Red'], bg: ['Blue-Green'], bb: ['Blue-Blue'] } },
     fill: { match: 'ADBE Fill', props: { color: ['ADBE Fill-0002', 'Color'] } },
+    lightSweep: { match: 'CC Light Sweep', props: {
+      center: ['CC Light Sweep-0001', 'Center'], direction: ['CC Light Sweep-0002', 'Direction'],
+      width: ['CC Light Sweep-0004', 'Width'], intensity: ['CC Light Sweep-0005', 'Sweep Intensity'],
+      color: ['CC Light Sweep-0008', 'Light Color'] },
+      fixed: [[['CC Light Sweep-0003', 'Shape'], 2], [['CC Light Sweep-0006', 'Edge Intensity'], 0]] },
     dropShadow: { match: 'ADBE Drop Shadow', props: {
       color: ['ADBE Drop Shadow-0001', 'Shadow Color'], opacity: ['ADBE Drop Shadow-0002', 'Opacity'],
       direction: ['ADBE Drop Shadow-0003', 'Direction'], distance: ['ADBE Drop Shadow-0004', 'Distance'],
@@ -70,11 +75,11 @@
     if (isSpatial(prop)) return 1;
     if (prop.propertyValueType == PropertyValueType.TwoD) return 2;
     if (prop.propertyValueType == PropertyValueType.ThreeD) return 3;
-    if (prop.propertyValueType == PropertyValueType.COLOR) return 4;
     return 1;
   }
 
   function fitValue(prop, v) {
+    if (!(v instanceof Array)) return v;
     if (prop.propertyValueType == PropertyValueType.ThreeD && v.length == 2) return [v[0], v[1], 100];
     if (prop.propertyValueType == PropertyValueType.ThreeD_SPATIAL && v.length == 2) return [v[0], v[1], 0];
     if (prop.propertyValueType == PropertyValueType.COLOR && v.length == 3) return [v[0], v[1], v[2], 1];
@@ -127,7 +132,62 @@
     }
   }
 
+  function setEffectProp(e, names, P, where) {
+    var p = findProp(e, names);
+    if (!p) { warn(where + ': no ' + names[0]); return null; }
+    setProp(p, P, null, where + ' ' + names[names.length - 1]);
+    return p;
+  }
+
+  // The 'gradient' effect: Gradient Ramp driven by an Angle or Radius slider
+  // through expressions, so it stays one control to edit. Conic: a left-to-
+  // right ramp wrapped round by Polar Coordinates, turned by Offset.
+  function addGradient(layer, fx, where) {
+    var parade = layer.property('ADBE Effect Parade');
+    var P = fx.props, mode = P.mode.value;
+    var c = P.center.keys ? P.center.keys[0].v : P.center.value;
+    var p0 = P.startAt.value, p1 = P.endAt.value;
+    var slider = parade.addProperty('ADBE Slider Control');
+    slider.name = mode == 'radial' ? 'Radius' : 'Angle';
+    setEffectProp(slider, ['ADBE Slider Control-0001', 'Slider'], mode == 'radial' ? P.radius : P.angle, where);
+    var ramp = parade.addProperty('ADBE Ramp');
+    ramp.name = 'Gradient';
+    setEffectProp(ramp, ['ADBE Ramp-0002', 'Start Color'], P.startColor, where);
+    setEffectProp(ramp, ['ADBE Ramp-0004', 'End Color'], P.endColor, where);
+    var shape = findProp(ramp, ['ADBE Ramp-0005', 'Ramp Shape']);
+    if (shape) shape.setValue(mode == 'radial' ? 2 : 1);
+    var start = findProp(ramp, ['ADBE Ramp-0001', 'Start of Ramp']), end = findProp(ramp, ['ADBE Ramp-0003', 'End of Ramp']);
+    var ctr = '[' + c[0] + ', ' + c[1] + ']';
+    try {
+      if (mode == 'radial') {
+        start.expression = ctr;
+        end.expression = ctr + ' + [effect("Radius")(1) * ' + p1 + ', 0]';
+      } else if (mode == 'conic') {
+        start.expression = '[thisLayer.width * ' + p0 + ', thisLayer.height / 2]';
+        end.expression = '[thisLayer.width * ' + p1 + ', thisLayer.height / 2]';
+        var off = parade.addProperty('ADBE Offset');
+        off.name = 'Turn';
+        findProp(off, ['ADBE Offset-0001', 'Shift Center To']).expression =
+          '[thisLayer.width / 2 + effect("Angle")(1) / 360 * thisLayer.width, thisLayer.height / 2]';
+        var polar = parade.addProperty('ADBE Polar Coordinates');
+        polar.name = 'Wrap round';
+        var interp = findProp(polar, ['ADBE Polar Coordinates-0001', 'Interpolation']);
+        if (interp) interp.setValue(100);
+        var conv = findProp(polar, ['ADBE Polar Coordinates-0002', 'Type of Conversion']);
+        if (conv) conv.setValue(1);
+      } else {
+        // CSS angle: 0 = up, 90 = right; the ramp runs along that line
+        // through the centre, from startAt to endAt of its length.
+        var body = 'var a = effect("Angle")(1) * Math.PI / 180, d = [Math.sin(a), -Math.cos(a)];\n'
+          + 'var L = Math.abs(thisLayer.width * d[0]) + Math.abs(thisLayer.height * d[1]);\n';
+        start.expression = body + ctr + ' + d * L * (' + p0 + ' - 0.5)';
+        end.expression = body + ctr + ' + d * L * (' + p1 + ' - 0.5)';
+      }
+    } catch (e) { warn(where + ': gradient expressions: ' + e); }
+  }
+
   function addEffect(layer, fx, where) {
+    if (fx.type == 'gradient') { addGradient(layer, fx, where); return; }
     var spec = FX[fx.type];
     if (!spec) { warn(where + ': unknown effect type ' + fx.type); return; }
     var parade = layer.property('ADBE Effect Parade');
@@ -233,11 +293,96 @@
     }
   }
 
+  // Shape-layer contents, in order: paths, then operators (Merge / Offset
+  // Paths), then Fill / Stroke, as AE renders them top to bottom.
+  var STAR = { star: 1, polygon: 2 };
+  var MERGE_MODE = { merge: 1, add: 2, subtract: 3, intersect: 4, exclude: 5 };
+  function addContents(group, list, where) {
+    for (var i = 0; i < list.length; i++) {
+      var it = list[i], w = where + ' ' + it.name, p;
+      try {
+        if (it.type == 'group') {
+          p = group.addProperty('ADBE Vector Group');
+          p.name = it.name;
+          addContents(p.property('ADBE Vectors Group'), it.items, w);
+          if (it.skew) {
+            // CSS skewX leans the other way to AE Skew.
+            var tg = p.property('ADBE Vector Transform Group');
+            setProp(findProp(tg, ['ADBE Vector Skew', 'Skew']), it.skew, function (v) { return -v; }, w + ' skew');
+          }
+          continue;
+        }
+        if (it.type == 'rect') {
+          p = group.addProperty('ADBE Vector Shape - Rect');
+          setEffectProp(p, ['ADBE Vector Rect Size', 'Size'], it.size, w);
+          if (it.position) setEffectProp(p, ['ADBE Vector Rect Position', 'Position'], it.position, w);
+          if (it.roundness) setEffectProp(p, ['ADBE Vector Rect Roundness', 'Roundness'], it.roundness, w);
+        } else if (it.type == 'ellipse') {
+          p = group.addProperty('ADBE Vector Shape - Ellipse');
+          setEffectProp(p, ['ADBE Vector Ellipse Size', 'Size'], it.size, w);
+          if (it.position) setEffectProp(p, ['ADBE Vector Ellipse Position', 'Position'], it.position, w);
+        } else if (it.type == 'star') {
+          p = group.addProperty('ADBE Vector Shape - Star');
+          findProp(p, ['ADBE Vector Star Type', 'Type']).setValue(STAR[it.star]);
+          setEffectProp(p, ['ADBE Vector Star Points', 'Points'], it.points, w);
+          setEffectProp(p, ['ADBE Vector Star Outer Radius', 'Outer Radius'], it.outer, w);
+          if (it.inner) setEffectProp(p, ['ADBE Vector Star Inner Radius', 'Inner Radius'], it.inner, w);
+          if (it.position) setEffectProp(p, ['ADBE Vector Star Position', 'Position'], it.position, w);
+        } else if (it.type == 'merge') {
+          p = group.addProperty('ADBE Vector Filter - Merge');
+          findProp(p, ['ADBE Vector Merge Type', 'Mode']).setValue(MERGE_MODE[it.mode]);
+        } else if (it.type == 'offset') {
+          p = group.addProperty('ADBE Vector Filter - Offset');
+          setEffectProp(p, ['ADBE Vector Offset Amount', 'Amount'], it.amount, w);
+          var join = findProp(p, ['ADBE Vector Offset Line Join', 'Line Join']);
+          if (join) join.setValue(1); // miter
+        } else if (it.type == 'fill') {
+          p = group.addProperty('ADBE Vector Graphic - Fill');
+          setEffectProp(p, ['ADBE Vector Fill Color', 'Color'], it.color, w);
+          if (it.opacity) setEffectProp(p, ['ADBE Vector Fill Opacity', 'Opacity'], it.opacity, w);
+          if (it.rule == 'evenodd') findProp(p, ['ADBE Vector Fill Rule', 'Fill Rule']).setValue(2);
+        } else if (it.type == 'stroke') {
+          p = group.addProperty('ADBE Vector Graphic - Stroke');
+          setEffectProp(p, ['ADBE Vector Stroke Color', 'Color'], it.color, w);
+          setEffectProp(p, ['ADBE Vector Stroke Width', 'Stroke Width'], it.width, w);
+          if (it.opacity) setEffectProp(p, ['ADBE Vector Stroke Opacity', 'Opacity'], it.opacity, w);
+          var lj = findProp(p, ['ADBE Vector Stroke Line Join', 'Line Join']);
+          if (lj) lj.setValue(1); // miter
+        } else {
+          warn(w + ': unknown shape item ' + it.type);
+          continue;
+        }
+        if (p) p.name = it.name;
+      } catch (e) {
+        warn(w + ': ' + e);
+      }
+    }
+  }
+
+  function toShape(v) {
+    var sh = new Shape();
+    sh.vertices = v;
+    sh.closed = true;
+    return sh;
+  }
+
+  function addMasks(layer, masks, where) {
+    for (var i = 0; i < masks.length; i++) {
+      try {
+        var m = layer.property('ADBE Mask Parade').addProperty('ADBE Mask Atom');
+        m.name = masks[i].name;
+        m.maskMode = MaskMode.ADD;
+        setProp(m.property('ADBE Mask Shape'), masks[i].path, toShape, where + ' mask');
+      } catch (e) { warn(where + ': mask: ' + e); }
+    }
+  }
+
   function createLayer(comp, L, items, compData) {
     var layer;
     if (L.kind == 'footage') layer = comp.layers.add(items.footage[L.source]);
     else if (L.kind == 'comp') layer = comp.layers.add(items.comps[L.source]);
     else if (L.kind == 'text') layer = comp.layers.addText(L.text.text);
+    else if (L.kind == 'shape') layer = comp.layers.addShape();
     else if (L.kind == 'solid' || L.kind == 'adjustment') {
       var w = Math.max(4, Math.round(L.w || compData.w)), h = Math.max(4, Math.round(L.h || compData.h));
       layer = comp.layers.addSolid(L.color || [1, 1, 1], L.name, w, h, 1);
@@ -285,6 +430,8 @@
       setProp(tr.property('ADBE Scale'), L.scale, null, where + ' scale');
       setProp(tr.property('ADBE Rotate Z'), L.rotation, null, where + ' rotation');
       setProp(tr.property('ADBE Opacity'), L.opacity, null, where + ' opacity');
+      if (L.contents) addContents(layer.property('ADBE Root Vectors Group'), L.contents, where);
+      if (L.masks) addMasks(layer, L.masks, where);
       for (var k = 0; k < L.effects.length; k++) addEffect(layer, L.effects[k], where);
       if (L.blend && BLEND[L.blend] !== undefined) layer.blendingMode = BLEND[L.blend];
       if (L.expressions) {

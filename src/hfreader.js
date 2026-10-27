@@ -11,48 +11,10 @@ import { pathToFileURL } from 'node:url';
 import { fitCurve } from './fit.js';
 import { P, makeLayer, newId } from './timeline.js';
 import { psName } from './fonts.js';
+import { installHfPlusStub } from './hfplus_stub.js';
+import { boxLayer, pathLayer, gradientEffect, sweepEffect } from './hfvector.js';
 
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-
-// Installed before the page's scripts run. Frameo's hfPlus helpers
-// (plus/*.js) only exist inside its render service, so this stand-in records
-// what the page asks of them; the converter maps those calls straight to AE
-// (Text Animators, track mattes) instead of sampling their DOM output.
-function installHfPlusStub() {
-  const rec = window.__hf2ae = { animates: [], mattes: [], unsupported: [], n: 0 };
-  const tag = (el) => {
-    if (typeof el === 'string') el = document.querySelector(el);
-    if (el && !el.getAttribute('data-hf2ae')) el.setAttribute('data-hf2ae', `e${++rec.n}`);
-    return el;
-  };
-  const unknown = (path) => new Proxy(function () {}, {
-    get: (t, k) => (typeof k === 'symbol' || k === 'then' ? undefined : unknown(`${path}.${k}`)),
-    apply: () => {
-      if (!rec.unsupported.includes(path)) rec.unsupported.push(path);
-      return unknown(`${path}()`);
-    },
-  });
-  const ns = (path, obj) => new Proxy(obj, { get: (t, k) => (k in t ? t[k] : unknown(`${path}.${String(k)}`)) });
-  window.hfPlus = ns('hfPlus', {
-    text: ns('hfPlus.text', {
-      animate(tl, el, opts) {
-        el = tag(el);
-        const selectors = ((opts && opts.selectors) || [{}]).map((sel) => ({ type: 'range', start: 0, end: 100, offset: 0, ...sel }));
-        const plain = JSON.parse(JSON.stringify({ ...opts, selectors: undefined }));
-        rec.animates.push({ el: el.getAttribute('data-hf2ae'), opts: plain, selectors });
-        return { selectors, props: { ...((opts && opts.props) || {}) }, units: [] };
-      },
-    }),
-    composite: ns('hfPlus.composite', {
-      matte(content, matte, mode = 'alpha') {
-        content = tag(content);
-        matte = tag(matte);
-        rec.mattes.push({ content: content.getAttribute('data-hf2ae'), matte: matte.getAttribute('data-hf2ae'), mode });
-        return {};
-      },
-    }),
-  });
-}
 
 // Runs in the page: find every text, SVG text, video and image element,
 // measure it, and sample the timeline on every frame.
@@ -112,8 +74,14 @@ function measure(fps) {
     else if (el.tagName === 'IMG') kind = 'image';
     else if (el instanceof SVGTextElement) kind = 'svgtext';
     else if (el instanceof HTMLElement && !el.closest('svg') && !el.querySelector('*:not(br)') && el.innerText.trim()) kind = 'text';
+    else if (el instanceof SVGPathElement) kind = 'path';
     else if (el instanceof HTMLCanvasElement || el.tagName === 'IFRAME') {
       notes.push(`<${el.tagName.toLowerCase()}> isn't converted yet`);
+    } else if (el instanceof HTMLElement && !el.closest('svg')) {
+      // A plain box that paints something: background colour or image, or a border.
+      const paints = !/rgba\(\d+, \d+, \d+, 0\)|transparent/.test(cs.backgroundColor) || cs.backgroundImage !== 'none'
+        || parseFloat(cs.borderTopWidth) > 0;
+      if (paints && el.offsetWidth > 0 && el.offsetHeight > 0) kind = 'box';
     }
     if (!kind) return;
 
@@ -166,6 +134,24 @@ function measure(fps) {
         textAlign: anchor === 'middle' ? 'center' : anchor === 'end' ? 'right' : 'left',
         origin: [x + off.left, y + dy + off.top], svgOffset: [off.left, off.top],
       });
+    } else if (kind === 'box') {
+      Object.assign(item, {
+        radius: [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].map(parseFloat),
+        border: parseFloat(cs.borderTopWidth) > 0 ? { width: parseFloat(cs.borderTopWidth), color: cs.borderTopColor } : null,
+        hasImage: cs.backgroundImage !== 'none',
+      });
+      item.samples = { ...item.samples, rect: [], color: [], clip: [] };
+    } else if (kind === 'path') {
+      const d = el.getAttribute('d') || '';
+      const m = /^M(9\d{5}) 0Z$/.exec(d);
+      const svg = el.ownerSVGElement;
+      const off = rel(svg.getBoundingClientRect());
+      Object.assign(item, {
+        shapeId: m ? m[1] : null, d: m ? null : d, svgOffset: [off.left, off.top],
+        fill: cs.fill, stroke: cs.stroke, strokeWidth: parseFloat(cs.strokeWidth), fillRule: cs.fillRule,
+        id: el.id,
+      });
+      item.samples.shape = [];
     } else {
       Object.assign(item, {
         src: el.currentSrc || el.src, box: rel(el.getBoundingClientRect()), fit: cs.objectFit,
@@ -184,20 +170,43 @@ function measure(fps) {
     samples: a.selectors.map(() => ({ start: [], end: [], offset: [] })),
   }));
 
+  const gradients = (rec.gradients || []).map((g) => ({ el: g.el, obj: g.obj, samples: [] }));
+  const sweeps = (rec.sweeps || []).map((g) => ({ el: g.el, obj: g.obj, samples: [] }));
+  const lives = (rec.lives || []).map((lv) => ({ el: lv.el, fn: lv.fn, st: lv.st, samples: [] }));
+
   for (let f = 0; f < frames; f++) {
     if (tl) tl.seek(f / fps, false);
     for (const it of items) {
       const el = elOf(it.tag);
       it.samples.opacity.push(opacityOf(el) * 100);
-      if (it.kind === 'svgtext') {
+      if (it.kind === 'svgtext' || it.kind === 'path') {
         const m = el.getCTM();
         it.samples.m.push([m.a, m.b, m.c, m.d, m.e, m.f]);
+      } else if (it.kind === 'box') {
+        // Layout box without its transform, the transform about its centre,
+        // its colour and its clip-path.
+        const saved = el.style.transform;
+        el.style.transform = 'none';
+        const r = rel(el.getBoundingClientRect());
+        el.style.transform = saved;
+        const cs = getComputedStyle(el);
+        const t = cs.transform;
+        const m = new DOMMatrix(t === 'none' ? undefined : t);
+        it.samples.m.push([m.a, m.b, m.c, m.d, m.e, m.f]);
+        it.samples.rect.push([r.left, r.top, r.right - r.left, r.bottom - r.top]);
+        it.samples.color.push(cs.backgroundColor);
+        it.samples.clip.push(cs.clipPath);
       } else if (it.kind === 'text') {
         const t = getComputedStyle(el).transform;
         const m = new DOMMatrix(t === 'none' ? undefined : t);
         it.samples.m.push([m.a, m.b, m.c, m.d, m.e, m.f]);
       }
     }
+    // Plain values only: GSAP hangs its own state (_gsap) on what it tweens.
+    const values = (o) => Object.fromEntries(Object.getOwnPropertyNames(o).filter((k) => k[0] !== '_' && ['number', 'string', 'boolean'].includes(typeof o[k])).map((k) => [k, o[k]]));
+    for (const g of gradients) g.samples.push(values(g.obj));
+    for (const g of sweeps) g.samples.push(values(g.obj));
+    for (const lv of lives) lv.samples.push(JSON.parse(JSON.stringify(lv.fn(lv.st))));
     animates.forEach((a, i) => rec.animates[i].selectors.forEach((sel, j) => {
       a.samples[j].start.push(sel.start);
       a.samples[j].end.push(sel.end);
@@ -212,9 +221,11 @@ function measure(fps) {
   });
   const bg = getComputedStyle(root).backgroundColor;
   const stylesheets = [...document.querySelectorAll('link[rel="stylesheet"]')].map((l) => l.href);
+  const plain = (list) => list.map((g) => ({ el: g.el, samples: g.samples }));
   return {
     compId, w, h, frames, items, animates: animates.filter((a) => byTag[a.el]), mattes, background: bg,
-    unsupported: rec.unsupported, notes, stylesheets, hasTimeline: !!tl,
+    gradients: plain(gradients), sweeps: plain(sweeps), lives: plain(lives), shapes: rec.shapes || {},
+    approximations: rec.approximations || [], unsupported: rec.unsupported, notes, stylesheets, hasTimeline: !!tl,
   };
 }
 
@@ -475,6 +486,7 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference, res
     const notes = [...m.notes, ...pageErrors.map((e) => `${name}: page error: ${e}`)];
     if (!m.hasTimeline) notes.push(`${name}: no window.__timelines["${m.compId}"]; layers are static`);
     for (const u of m.unsupported) notes.push(`${name}: page calls ${u}, which isn't mapped to AE yet`);
+    for (const a of m.approximations) notes.push(`${name}: ${a}`);
 
     const comps = {};
     let camera = null;
@@ -489,16 +501,55 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference, res
 
     // Lower data-track-index draws first (bottom), then document order.
     const items = [...m.items].sort((a, b) => a.track - b.track || a.order - b.order);
+    const gradOf = (t) => m.gradients.find((g) => g.el === t);
+    const sweepOf = (t) => m.sweeps.find((g) => g.el === t);
     for (const it of items) {
       if (it.kind === 'video' || it.kind === 'image') {
         layers.push(await mediaLayer(it, resolveMedia, fps, notes));
+        continue;
+      }
+      if (it.kind === 'box') {
+        const g = gradOf(it.tag), sw = sweepOf(it.tag);
+        const [, , bw, bh] = it.samples.rect[0];
+        if (it.hasImage && !g && !sw) notes.push(`${it.id || 'box'}: CSS background-image isn't converted (only hfPlus.gradient)`);
+        layers.push(boxLayer(it, {
+          fps, notes,
+          gradient: g ? gradientEffect(g, bw, bh, fps) : null,
+          sweep: sw ? sweepEffect(sw, bw, bh, fps) : null,
+        }));
+        continue;
+      }
+      if (it.kind === 'path') {
+        const lv = m.lives.find((x) => x.el === it.tag);
+        const trees = lv ? lv.samples : it.shapeId ? [m.shapes[it.shapeId]] : null;
+        const l = pathLayer(it, { fps, trees: trees && (lv ? trees : Array(m.frames).fill(trees[0])), notes });
+        if (l) layers.push(l);
         continue;
       }
       const label = it.text.replace(/\s+/g, ' ').trim();
       const rec = m.animates.find((a) => a.el === it.tag);
       const animate = rec ? animatorFor(rec, fps, notes, label) : null;
       if (animate && animate.threeD) camera = { zoom: animate.perspective || 100000 };
-      for (const l of textLayers(it, fps, notes, animate)) {
+      const tg = gradOf(it.tag), tsw = sweepOf(it.tag);
+      const made = textLayers(it, fps, notes, animate);
+      if ((tg || tsw) && it.box) {
+        // Gradient text (background-clip: text): a gradient solid over the
+        // element's box, cut by the text as an alpha track matte.
+        const b = it.box, bw = b.right - b.left, bh = b.bottom - b.top;
+        const fx = [];
+        if (tg) fx.push(gradientEffect(tg, bw, bh, fps));
+        else fx.push({ type: 'fill', name: 'Fill', props: { color: P(parseRgba(it.color).rgb) } });
+        if (tsw) fx.push(sweepEffect(tsw, bw, bh, fps));
+        const textLayer = made[made.length - 1];
+        layers.push(makeLayer({
+          name: `${textLayer.name} – gradient`, kind: 'solid', w: Math.round(bw), h: Math.round(bh), color: [1, 1, 1],
+          inFrame: it.inFrame, outFrame: it.outFrame,
+          anchor: P([Math.round(bw) / 2, Math.round(bh) / 2]), position: P([round2(b.left + bw / 2), round2(b.top + bh / 2)]),
+          effects: fx, trackMatte: { layer: textLayer.name, type: 'alpha' },
+          comment: 'The text below cuts this gradient (background-clip: text).',
+        }));
+      }
+      for (const l of made) {
         if (!l.group) { layers.push(l); continue; }
         const id = newId('comp');
         comps[id] = { id, name: l.name, w: m.w, h: m.h, frames: m.frames, layers: l.layers };
