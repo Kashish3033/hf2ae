@@ -9,7 +9,7 @@
 import puppeteer from 'puppeteer-core';
 import { pathToFileURL } from 'node:url';
 import { fitCurve } from './fit.js';
-import { P, makeLayer } from './timeline.js';
+import { P, makeLayer, newId } from './timeline.js';
 import { psName } from './fonts.js';
 
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -87,7 +87,8 @@ function measure(fps) {
       item.samples.rot.push(Math.atan2(m.b, m.a) * 180 / Math.PI);
     });
   }
-  return { compId, w, h, frames, items, notes, hasTimeline: !!tl };
+  const stylesheets = [...document.querySelectorAll('link[rel="stylesheet"]')].map((l) => l.href);
+  return { compId, w, h, frames, items, notes, stylesheets, hasTimeline: !!tl };
 }
 
 function parseRgba(str) {
@@ -165,6 +166,8 @@ function textLayers(item, fps, notes) {
     text: item.text.replace(/\n/g, '\r'),
     font: font.name,
     family: item.font.family,
+    weight: item.font.weight,   // not used by AE (the PostScript name carries it); used by the preview
+    style: item.font.style,
     size: item.font.size,
     fill: rgb,
     tracking: round2(ls / item.font.size * 1000),
@@ -206,7 +209,16 @@ function textLayers(item, fps, notes) {
     }
     return layer;
   });
-  return [...copies.reverse(), main];
+  const layers = [...copies.reverse(), main];
+
+  // CSS opacity fades the text and its shadows as one group; per-layer
+  // opacity in AE would let the fringes show through mid-fade. When it
+  // matters, group them in a precomp and fade that, as an editor would.
+  if (copies.length && (opacity.keys || opacity.value < 100)) {
+    main.opacity = P(100);
+    return [{ group: true, name, layers, opacity, inFrame: item.inFrame, outFrame: item.outFrame }];
+  }
+  return layers;
 }
 
 export async function readHyperframes(htmlPath, { fps = 25, name, reference } = {}) {
@@ -226,7 +238,17 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference } = 
 
     // Lower data-track-index draws first (bottom).
     const items = [...m.items].sort((a, b) => a.track - b.track);
-    const layers = items.flatMap((it) => textLayers(it, fps, notes));
+    const comps = {};
+    const layers = items.flatMap((it) => textLayers(it, fps, notes)).map((l) => {
+      if (!l.group) return l;
+      const id = newId('comp');
+      comps[id] = { id, name: l.name, w: m.w, h: m.h, frames: m.frames, layers: l.layers };
+      return makeLayer({
+        name: l.name, kind: 'comp', source: id, w: m.w, h: m.h, inFrame: l.inFrame, outFrame: l.outFrame,
+        anchor: P([m.w / 2, m.h / 2]), position: P([m.w / 2, m.h / 2]), opacity: l.opacity,
+        comment: 'Text with its CSS shadows; the precomp fades them together like CSS opacity.',
+      });
+    });
     if (reference) {
       layers.unshift(makeLayer({
         name: 'HyperFrames render (reference)', kind: 'footage', source: reference.id,
@@ -236,7 +258,7 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference } = 
         comment: 'The original HyperFrames render, switched off. Turn it on to compare.',
       }));
     }
-    return { comp: { name: name || m.compId, w: m.w, h: m.h, frames: m.frames, layers }, notes };
+    return { comp: { name: name || m.compId, w: m.w, h: m.h, frames: m.frames, layers, stylesheets: m.stylesheets }, comps, notes };
   } finally {
     await browser.close();
   }

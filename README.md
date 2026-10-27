@@ -114,6 +114,48 @@ HyperFrames: plain-text `.clip` elements with opacity and 2D transforms
 animated by the composition's GSAP timeline. Pages that load `plus/*.js`
 helpers need those files next to the HTML.
 
+## Verify without After Effects
+
+`src/verify.js` checks a conversion without AE. It redraws a comp in headless
+Chrome from `timeline.json` alone (comps, layers, transforms, keyframe eases,
+effects, blending modes; none of the original HTML), then compares it frame by
+frame with a reference using ffmpeg's PSNR. 40 dB and above looks identical;
+50 dB and above is essentially pixel-identical.
+
+```bash
+node src/verify.js out/punch_demo --comp "Punch Title" --ref ../../examples/punch_demo/src/punch_title.html
+```
+
+`--ref` can be the HyperFrames HTML (rendered in Chrome by seeking its
+timeline, so no video compression gets in the way) or a video. The verifier
+writes `out/<shot>/verify/<comp>/`: the frames, `sheet.png` (reference |
+preview | difference ×4) and `report.json`.
+
+Results for the punch demo:
+
+| What | Against | PSNR |
+|---|---|---|
+| Punch Title (HyperFrames → AE text layers) | the HTML in Chrome | 56.5 dB mean, worst 54.5 |
+| Punch Title | Frameo's webm render | 36 dB (the render service draws text 1px higher; VP9 4:2:0 alone costs ~41 dB) |
+| Full shot | ffmpeg render (no grain, yuv444p) | flashes 31–34, money 32, zoom blur 30, push 27.5 |
+
+The push frames are lower because ffmpeg's `zoompan` crops at whole pixels
+(and at even pixels in yuv420p), so its push steps by up to 1–2px a frame.
+AE moves smoothly. Shifted by that sub-pixel offset, the push frames match at
+33–35 dB.
+
+What the verifier taught the converter:
+- CSS `opacity` fades text and its shadows together, so a fading text with
+  shadows goes in its own precomp and the precomp fades.
+- ffmpeg's `eq` works on TV-range luma (16–235) and keeps the colour, so it
+  becomes Levels with the TV-range offset, on an adjustment layer in
+  Luminosity mode.
+
+The preview reproduces AE as hf2ae assumes it works (tracking, Drop Shadow
+softness, Radial Blur amount). It checks the conversion, not After Effects
+itself. One run in real AE is still needed to confirm those assumptions (see
+Calibration).
+
 ## Tests
 
 ```bash

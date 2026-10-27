@@ -55,6 +55,7 @@ export async function convert(shotPath, outDir) {
         fps, name, reference: { id, w: info.w, h: info.h },
       });
       notes.push(...hf.notes);
+      Object.assign(reader.comps, hf.comps);
       const compId = newId('comp');
       reader.comps[compId] = { id: compId, ...hf.comp };
       inputs.push(() => ({

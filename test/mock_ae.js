@@ -83,7 +83,7 @@ export function mockAE(baseDir) {
     $: { fileName: path.join(baseDir, 'x.jsx') },
     alert: (m) => { ctx.alerted = m; },
     KeyframeEase: function (s, i) { this.speed = s; this.influence = i; },
-    BlendingMode: { NORMAL: 1, SCREEN: 2, MULTIPLY: 3, OVERLAY: 4, ADD: 5, LIGHTEN: 6, DARKEN: 7, DIFFERENCE: 8, SOFT_LIGHT: 9, HARD_LIGHT: 10 },
+    BlendingMode: { NORMAL: 1, SCREEN: 2, MULTIPLY: 3, OVERLAY: 4, ADD: 5, LIGHTEN: 6, DARKEN: 7, DIFFERENCE: 8, SOFT_LIGHT: 9, HARD_LIGHT: 10, LUMINOSITY: 11, COLOR: 12 },
     KeyframeInterpolationType: { LINEAR: 1, BEZIER: 2, HOLD: 3 },
     PropertyValueType: PVT,
     ParagraphJustification: { LEFT_JUSTIFY: 1, RIGHT_JUSTIFY: 2, CENTER_JUSTIFY: 3 },

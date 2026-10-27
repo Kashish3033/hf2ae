@@ -44,10 +44,13 @@ test('fitter: fades are linear, one-frame cuts are holds', () => {
 });
 
 test('eq brightness/contrast as Levels', () => {
-  const l = levelsFromEq(0.55, 0.45).props;
-  assert.equal(l.outputBlack.value, 0.675);
-  assert.ok(Math.abs(l.inputWhite.value - 0.5909) < 1e-3);
-  assert.equal(l.outputWhite.value, 1);
+  const full = levelsFromEq(0.55, 0.45, 1, 'pc').props;
+  assert.ok(Math.abs(full.outputBlack.value - 0.675) < 1e-9);
+  assert.ok(Math.abs(full.inputWhite.value - 0.5909) < 1e-3);
+  assert.equal(full.outputWhite.value, 1);
+  // TV-range luma (after format=yuv420p) lifts the blacks further.
+  const tv = levelsFromEq(0.6, 0.4).props;
+  assert.ok(Math.abs(tv.outputBlack.value - 0.6694) < 1e-3);
 });
 
 test('text-shadow parsing', () => {

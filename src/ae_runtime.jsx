@@ -47,7 +47,8 @@
     normal: BlendingMode.NORMAL, screen: BlendingMode.SCREEN, multiply: BlendingMode.MULTIPLY,
     overlay: BlendingMode.OVERLAY, addition: BlendingMode.ADD, lighten: BlendingMode.LIGHTEN,
     darken: BlendingMode.DARKEN, difference: BlendingMode.DIFFERENCE,
-    softlight: BlendingMode.SOFT_LIGHT, hardlight: BlendingMode.HARD_LIGHT
+    softlight: BlendingMode.SOFT_LIGHT, hardlight: BlendingMode.HARD_LIGHT,
+    luminosity: BlendingMode.LUMINOSITY, color: BlendingMode.COLOR
   };
 
   var INTERP = { linear: KeyframeInterpolationType.LINEAR, bezier: KeyframeInterpolationType.BEZIER, hold: KeyframeInterpolationType.HOLD };

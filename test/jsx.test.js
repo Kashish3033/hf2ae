@@ -70,8 +70,19 @@ test('punch demo converts and its jsx runs cleanly', { skip: !hasMedia && 'run e
   const { ctx, items, files } = mockAE(dir);
   vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
   const names = items.map((c) => c.name);
-  assert.deepEqual(names.sort(), ['Photo + Punch Title', 'Punch Demo – Einstein vs Bohr', 'Punch Title', 'Shot 1 – Einstein push', 'Shot 2 – Money'].sort());
+  // One precomp per title line groups the text with its shadow copies.
+  assert.deepEqual(names.sort(), ['EINSTEIN', 'Photo + Punch Title', 'Punch Demo – Einstein vs Bohr', 'Punch Title', 'Shot 1 – Einstein push', 'Shot 2 – Money', 'VS. BOHR'].sort());
   const report = Object.values(files)[0].join('\n');
   const warnings = report.split('\n').filter((l) => /: /.test(l) && !/^(effect |  |hf2ae report|After Effects)/.test(l));
   assert.deepEqual(warnings, []);
+});
+
+test('punch title rebuilt from the timeline matches the HyperFrames HTML', { skip: !hasMedia && 'run examples/punch_demo/fetch.sh first' }, async () => {
+  const { convert } = await import('../src/cli.js');
+  const { verify } = await import('../src/verify.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hf2ae-verify-'));
+  await convert(PUNCH, dir);
+  const r = await verify(dir, { comp: 'Punch Title', ref: path.join(path.dirname(PUNCH), 'src/punch_title.html') });
+  // 50 dB and up is pixel-identical to the eye; a missing shadow or a 1px slip drops well below.
+  assert.ok(r.psnr.min >= 50, `worst frame ${r.worstFrames[0].frame}: ${r.psnr.min.toFixed(1)} dB`);
 });

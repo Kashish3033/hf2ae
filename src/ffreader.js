@@ -516,13 +516,14 @@ export class GraphReader {
   // ---- effects -----------------------------------------------------------
 
   // Put effects on the layer when that is equivalent, otherwise on an
-  // adjustment layer; `spans` limits them to frame intervals.
-  addEffect(s, fx, spans, name) {
+  // adjustment layer; `spans` limits them to frame intervals. A blending
+  // mode always needs an adjustment layer.
+  addEffect(s, fx, spans, name, { blend } = {}) {
     const out = this.clone(s);
     const effects = Array.isArray(fx) ? fx : [fx];
     const spatial = effects.some((e) => SPATIAL.has(e.type));
     const only = out.layers.length === 1 ? out.layers[0] : null;
-    const onLayer = !spans && only && (!spatial || isIdentity(only, out.w, out.h));
+    const onLayer = !spans && !blend && only && (!spatial || isIdentity(only, out.w, out.h));
     if (onLayer) {
       only.effects.push(...effects);
       return out;
@@ -535,6 +536,7 @@ export class GraphReader {
         inFrame: a, outFrame: b,
         anchor: P([out.w / 2, out.h / 2]), position: P([out.w / 2, out.h / 2]),
         effects: structuredClone(effects),
+        blend: blend || 'normal',
       }));
     }
     return out;
@@ -554,8 +556,12 @@ export class GraphReader {
     if (sat < 1) fx.push({ type: 'tint', name: 'Saturation', props: { amount: P((1 - sat) * 100) } });
     if (sat > 1) fx.push({ type: 'hueSaturation', name: 'Saturation', props: { saturation: P((sat - 1) * 100) } });
     if (!fx.length) return s;
-    this.note('eq: brightness/contrast rebuilt as Levels (linear on all channels; ffmpeg works on luma only)');
-    return this.addEffect(s, fx, this.spans(s, a), a.enable ? 'Flash' : 'Grade');
+    // ffmpeg's eq changes luma only and keeps the colour. Levels in
+    // Luminosity mode does the same: brightness from the effect, colour from
+    // below. A saturation change needs the colour, so it stays Normal.
+    const lumaOnly = sat === 1;
+    if (!lumaOnly) this.note('eq with saturation: Levels works on all channels here (ffmpeg changes luma only)');
+    return this.addEffect(s, fx, this.spans(s, a), a.enable ? 'Flash' : 'Grade', { blend: lumaOnly ? 'luminosity' : undefined });
   }
 
   f_hue([s], a) {
@@ -635,10 +641,13 @@ function isIdentityish(s) {
   return isStatic(l) && l.w === s.w && l.h === s.h;
 }
 
-// ffmpeg eq: out = (in - 0.5) * contrast + 0.5 + brightness (then gamma).
-// As Levels: the input range that lands inside [0, 1], mapped linearly.
-export function levelsFromEq(c, b, gamma = 1) {
-  const base = 0.5 - 0.5 * c + b;
+// ffmpeg eq: Y' = (Y - 0.5) * contrast + 0.5 + brightness (then gamma), on
+// 8-bit luma codes. Frameo graphs convert to yuv420p first, which is TV range
+// (black 16, white 235), so in full-range terms the gain is the contrast and
+// the offset shifts. As Levels: the input range that lands inside [0, 1].
+export function levelsFromEq(c, b, gamma = 1, range = 'tv') {
+  const o = range === 'tv' ? 16 / 255 : 0, k = range === 'tv' ? 219 / 255 : 1;
+  const base = (0.5 + b - o + c * (o - 0.5)) / k;
   const at = (x) => base + c * x;
   let inBlack = 0, inWhite = 1;
   if (c > 0) {
