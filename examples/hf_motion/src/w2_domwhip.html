@@ -1,0 +1,11 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="plus/whip.js"></script>
+<style>body{margin:0;background:#000}#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#000}#v,#im{position:absolute;left:0;top:0;width:1280px;height:720px;object-fit:cover}</style></head>
+<body><div id="root" data-composition-id="main" data-width="1280" data-height="720" data-start="0" data-duration="6">
+<video id="v" class="clip" src="https://content.dashtoon.ai/saved-videos/da98f459-0e71-5f3b-97a4-a6b59b85eac3.mp4" data-start="0" data-duration="6" data-track-index="0" muted playsinline crossorigin="anonymous"></video>
+<img id="im" class="clip" data-start="0" data-duration="6" data-track-index="1" src="https://content.dashtoon.ai/stability-images/ece0528f-2aa7-434c-a86a-3afffaa341d6.png"></div>
+<script>
+var tl=gsap.timeline({paused:true});
+hfPlus.whip(tl,'#v','#im',{at:3,duration:0.4,angle:180});
+tl.to({},{duration:6},0);window.__timelines={main:tl};
+</script></body></html>

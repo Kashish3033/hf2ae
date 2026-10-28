@@ -1,0 +1,35 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:1280px;height:720px;background:#111;}#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#111;}#bg{position:absolute;inset:0;background:#111;}canvas{position:absolute;left:0;top:0;width:1280px;height:720px;}#labels{position:absolute;inset:0;font:600 18px Arial,sans-serif;color:#bbb;}#labels div{position:absolute;top:24px;width:240px;text-align:center;}</style>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="plus/particles.js"></script></head><body>
+<div id="root" data-composition-id="main" data-width="1280" data-height="720" data-start="0" data-duration="4">
+<div id="bg" class="clip" data-start="0" data-duration="4" data-track-index="0"></div>
+<canvas id="fx" class="clip" width="1280" height="720" data-start="0" data-duration="4" data-track-index="1"></canvas>
+<canvas id="fx2" class="clip" width="1280" height="720" data-start="0" data-duration="4" data-track-index="2"></canvas>
+<div id="labels" class="clip" data-start="0" data-duration="4" data-track-index="3">
+<div style="left:40px">A colorLife (L rgba stop / R +opacity)</div>
+<div style="left:280px">B glyph $ + spin/rotation</div>
+<div style="left:520px">C canvas sprite + aspect</div>
+<div style="left:760px">D rate + burst + turbulence</div>
+<div style="left:1000px">E = B via create()</div>
+</div>
+</div>
+<script>
+function starCanvas(){var c=document.createElement('canvas');c.width=c.height=64;var g=c.getContext('2d');g.fillStyle='#FFD700';g.beginPath();for(var i=0;i<10;i++){var r=i%2?13:31,a=-Math.PI/2+i*Math.PI/5;g.lineTo(32+r*Math.cos(a),32+r*Math.sin(a));}g.closePath();g.fill();g.fillStyle='#FF4040';g.fillRect(28,4,8,8);return c;}
+var CFG = {
+  duration: 4, seed: 11, blend: 'source-over',
+  B: { x: 400, y: 600, start: 0.5, burst: 40, rate: 0, life: [2, 3], speed: [60, 160], angle: -90, spread: 70, gravity: 40, drag: 0.3, size: 28, sizeVar: 0.2, color: ['#FFD700', '#7CFC00'], sprite: '$', rotation: [0, 360], spin: [90, 270] },
+  A1: { x: 110, y: 600, start: 0.5, burst: 60, life: [1.5, 2.5], speed: [80, 200], angle: -90, spread: 40, gravity: 60, drag: 0.5, size: 9, sizeVar: 0.3, colorLife: ['#FFFFFF', '#FFD700', 'rgba(255,215,0,0)'] },
+  A2: { x: 210, y: 600, start: 0.5, burst: 60, life: [1.5, 2.5], speed: [80, 200], angle: -90, spread: 40, gravity: 60, drag: 0.5, size: 9, sizeVar: 0.3, colorLife: ['#FFFFFF', '#FFD700', '#FFD700'], opacity: [1, 0] },
+  C: { x: 640, y: 600, start: 0.5, burst: 40, life: [2, 3], speed: [60, 160], angle: -90, spread: 70, gravity: 40, drag: 0.3, size: 30, sizeVar: 0.2, sprite: starCanvas(), aspect: [0.4, 0.6], rotation: [0, 360], spin: [-120, 120] },
+  D1: { x: 880, y: 620, start: 0, end: 4, rate: 30, life: [1.5, 2], speed: [40, 90], angle: -90, spread: 20, size: 5, color: '#00E5FF', turbulence: { scale: 0.01, amount: 60, speed: 1 } },
+  D2: { x: 880, y: 420, start: 2.0, burst: 40, life: [1, 1.6], speed: [100, 220], angle: 0, spread: 360, drag: 1, size: 6, color: '#FF4FD8', turbulence: { scale: 0.01, amount: 60, speed: 1 } }
+};
+var tl = gsap.timeline({ paused: true });
+hfPlus.particles.attach(tl, document.getElementById('fx'), { seed: CFG.seed, blend: CFG.blend, duration: CFG.duration, emitters: [CFG.B, CFG.A1, CFG.A2, CFG.C, CFG.D1, CFG.D2] });
+var E = Object.assign({}, CFG.B, { x: 1120 });
+var sysE = hfPlus.particles.create(document.getElementById('fx2'), { seed: CFG.seed, blend: CFG.blend, emitters: [E] });
+var clockE = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; sysE.render(v); } };
+tl.to(clockE, { t: CFG.duration, duration: CFG.duration, ease: 'none' }, 0);
+window.__timelines = window.__timelines || {};
+window.__timelines['main'] = tl;
+</script></body></html>

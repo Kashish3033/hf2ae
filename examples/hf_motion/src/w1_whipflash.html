@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="plus/ease.js"></script><script src="plus/whip.js"></script>
+<style>
+html,body{margin:0;background:#000;}
+body{width:1080px;height:1920px;overflow:hidden;}
+#root{position:relative;width:1080px;height:1920px;overflow:hidden;background:#000;}
+img{position:absolute;left:0;top:0;width:1080px;height:1920px;object-fit:cover;}
+#f{position:absolute;inset:0;background:#fff;opacity:0;}
+</style></head><body>
+<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-start="0" data-duration="2.2">
+<img id="a" src="https://content.dashtoon.ai/stability-images/df41c6a0-0963-48fc-9aa9-1c59cbcf74b9.png"><img id="b" src="https://content.dashtoon.ai/stability-images/16053dfa-ad45-4493-80c5-42d346871f3a.png"><div id="f"></div>
+</div>
+<script>
+window.__timelines=window.__timelines||{};var tl=gsap.timeline({paused:true});
+hfPlus.whip(tl,"#a","#b",{at:1,duration:5/30,angle:180,blur:60});
+tl.set("#f",{opacity:1},35/30);tl.set("#f",{opacity:0},36/30);
+tl.set({},{},2.2);
+window.__timelines["main"]=tl;
+</script></body></html>

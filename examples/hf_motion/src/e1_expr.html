@@ -1,0 +1,41 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;width:1280px;height:720px;background:#111;overflow:hidden}
+#root{position:relative;width:1280px;height:720px;background:#111}
+#st{position:absolute;left:0;top:0;width:1280px;height:720px}
+.a{position:absolute;left:0;top:0}
+#dot{width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:#FF4500}
+#cardA{left:140px;top:160px;width:120px;height:60px;background:#FFD700;border-radius:6px}
+#blob{left:890px;top:120px;width:140px;height:140px;border-radius:50%;background:#1E90FF}
+#bar{left:80px;top:500px;width:24px;height:80px;background:#7CFC00}
+#ghost{left:80px;top:590px;width:24px;height:10px;background:#555}
+.card{position:absolute;width:110px;height:70px;background:#eee;color:#111;font:16px monospace;display:flex;align-items:center;justify-content:center;border-radius:6px}
+.lab{position:absolute;font:15px monospace;color:#888}
+#err{position:absolute;left:16px;bottom:6px;font:14px monospace;color:#f66;white-space:pre-wrap}
+</style></head><body>
+<div id="root" data-composition-id="main" data-width="1280" data-height="720" data-start="0" data-duration="6">
+<div id="st" class="clip" data-start="0" data-duration="6" data-track-index="1">
+<div id="cardA" class="a"></div><div id="dot" class="a"></div>
+<div id="blob" class="a"></div>
+<div id="ghost" class="a"></div><div id="bar" class="a"></div>
+<div class="card" style="left:690px;top:430px"></div><div class="card" style="left:830px;top:430px"></div><div class="card" style="left:970px;top:430px"></div><div class="card" style="left:1110px;top:430px"></div>
+<div class="card" style="left:690px;top:570px"></div><div class="card" style="left:830px;top:570px"></div><div class="card" style="left:970px;top:570px"></div><div class="card" style="left:1110px;top:570px"></div>
+<div class="lab" style="left:40px;top:20px">(a) lookAt</div><div class="lab" style="left:700px;top:20px">(b) noise</div><div class="lab" style="left:40px;top:400px">(c) springTrack (green) vs keys (grey)</div><div class="lab" style="left:690px;top:400px">(d) seedRandom / random / gaussRandom</div>
+<div id="err"></div></div></div>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="plus/expr.js"></script>
+<script>
+var tl=gsap.timeline({paused:true});window.__timelines={main:tl};
+function showErr(m){document.getElementById('err').textContent+=m+'\n';}
+var E=hfPlus.expr, O={fps:24,duration:6};
+function dx(t){return 400+110*Math.cos(t*1.4);} function dy(t){return 190+110*Math.sin(t*1.4);}
+try{E.bind(tl,'#dot',{x:function(t){return dx(t);},y:function(t){return dy(t);}},O);
+E.bind(tl,'#cardA',{rotation:function(t){return E.lookAt([200,190],[dx(t),dy(t)]);}},O);}catch(e){showErr('a: '+e.message);}
+try{E.bind(tl,'#blob',{scaleX:function(t,c){return 1+0.3*c.noise(t*2);},scaleY:function(t,c){return 1+0.3*E.noise(7,t*2);},rotation:function(t,c){return 40*c.noise(t+10);}},{fps:24,seed:3,duration:6});}catch(e){showErr('b: '+e.message);}
+try{var KEYS=[{t:0,v:0},{t:0.5,v:0},{t:1.5,v:400},{t:3,v:150}];var sp=E.springTrack(KEYS,{frequency:2,damping:0.4});
+function key(t){var v=KEYS[0].v;KEYS.forEach(function(k){if(t>=k.t)v=k.v;});return v;}
+E.bind(tl,'#bar',{x:function(t){var r=sp.valueAtTime(t);return Array.isArray(r)?r[0]:r;}},O);
+E.bind(tl,'#ghost',{x:function(t){return key(t);}},O);}catch(e){showErr('c: '+e.message);}
+try{E.bind(tl,'.card',{rotation:function(t,c){c.seedRandom(0,true);var r=c.random(-25,25);c.el.textContent=r.toFixed(1)+'\u00b0';return r;},scale:function(t,c){c.seedRandom(1,true);return c.gaussRandom(0.7,1.3);}},{fps:24,seed:42,duration:6});}catch(e){showErr('d: '+e.message);}
+tl.set({},{},6);
+</script></body></html>

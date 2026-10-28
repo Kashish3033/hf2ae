@@ -100,6 +100,8 @@ Also to verify in AE:
 - Polar Coordinates starting the conic at 12 o'clock and going clockwise, like CSS `conic-gradient`
 - the sign of shape-group Skew against CSS `skewX`, and CC Light Sweep's direction and width against the band
 - colour keyframes taking a single ease (hf2ae assumes so)
+- Directional Blur length per Gaussian sigma (`blurLengthPerSigma`), the Optics Compensation field of view per `lensDistortion` k (`opticsFovPerK`), and the Shift Channels popup values
+- turning on AE motion blur for whips to match Frameo's render motion blur
 
 - the units Levels and Drop Shadow take from scripts (the report lists their ranges)
 - the right-aligned text's x position with negative tracking
@@ -144,7 +146,24 @@ HyperFrames:
   - `hfPlus.craft.matchState` animates like the original (smoothstep);
     `craft.paintPath`'s brush reveal becomes a keyed **mask** wipe (its
     organic edge and drips are not reproduced).
+  - `hfPlus.whip` slides the two layers with **Easy Ease** (Frameo's
+    whip.state is exactly smoothstep) and adds one **Directional Blur**
+    adjustment layer over both, keyed to its blur curve; in/out points trimmed.
+  - `hfPlus.fx(canvas, source, ops)` becomes a precomp: the source layer,
+    then per op: `blend` (the top image with that blending mode, opacity
+    keyed), `directionalBlur` (Directional Blur), `whip`, `chromaticAberration`
+    (three Shift Channels copies, red in / blue out, added),
+    `lensDistortion` (Optics Compensation), `grain` (Noise), `spinBlur`
+    (Radial Blur, Spin). Off-screen canvases (the top image) are saved as PNG
+    footage. `crt`, `paper`, `lowpoly`, `meshgrid`, `ascii` have no mapping.
+  - `hfPlus.expr.bind` runs the page's functions every frame and keys the
+    result; `lookAt`, `springTrack` and the page's own maths are exact.
+    `noise` and the seeded randoms use hf2ae's generator, so their values
+    differ from Frameo's.
+  - `hfPlus.particles` is recorded (emitters, sprites) but not converted.
   - Any other helper call is reported in the notes as not mapped yet.
+- Text is placed by where its glyphs are (flex-centred labels included),
+  and static transforms (a card rotated once) are kept.
 - Plain `<div>` boxes become **shape layers** (Rectangle + Fill, Stroke for
   a border) with size, position, rotation, skew and colour keyed; a
   `clip-path: inset()` becomes a mask.
@@ -192,6 +211,12 @@ fetch the renders with `fetch.sh`), against Frameo's own MP4 renders:
 | Gradient text + shine sweep | gradient solid matted by the text, CC Light Sweep keyed | 30.6 dB; static gradient within 1–3 levels |
 | paintPath underline + matchState box | mask wipe; rectangle size/position/colour keyed | box 32 dB; reveal timing matched, brush edge not |
 | Eight eases | shape-layer dots with eased position keys | dots within 1–3 px, 41.7 dB on the motion (26.3 whole frame: labels) |
+
+| Whip between video and photo (`whip`) | two Easy Ease keys per layer + Directional Blur adjustment | 39.9 dB mean; mid-whip 22 dB (Frameo adds render motion blur) |
+| Whip with flash frame (`whip`, blur 60) | same | 34.4 dB mean |
+| Directional blur + canvas whip (`fx`) | fx precomp: Directional Blur adjustment, whip | 36.3 dB mean |
+| Dissolve cut with RGB split + lens (`fx`) | dissolve blend, Shift Channels rig, Optics Compensation | 37.5 dB mean; lens margins identical to the pixel |
+| lookAt / noise / spring / seeded random (`expr`) | sampled and keyed | lookAt 34–46 dB; noise and random values differ by design |
 
 Where whole-frame numbers are lower, it is the `monospace` labels and big
 white type: Frameo renders on Linux with different monospace fonts and

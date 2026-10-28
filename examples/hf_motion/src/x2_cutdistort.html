@@ -1,0 +1,22 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="plus/fx.js"></script><script src="plus/finish.js"></script><script src="plus/fx-blur.js"></script>
+<style>body{margin:0;background:#000}#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#000}video{opacity:0}video,canvas{position:absolute;left:0;top:0;width:1280px;height:720px}</style></head>
+<body><div id="root" data-composition-id="main" data-width="1280" data-height="720" data-start="0" data-duration="6">
+<video id="v" class="clip" src="https://content.dashtoon.ai/saved-videos/da98f459-0e71-5f3b-97a4-a6b59b85eac3.mp4" data-start="0" data-duration="6" data-track-index="0" muted playsinline crossorigin="anonymous"></video>
+<canvas id="c" class="clip" width="1280" height="720" data-start="0" data-duration="6" data-track-index="1"></canvas>
+<div id="msg" style="position:absolute;left:10px;top:10px;color:#f55;font:16px monospace"></div></div>
+<script>
+var tl=gsap.timeline({paused:true});
+var s=document.createElement('canvas');s.width=1280;s.height=720;
+var r=hfPlus.fx(tl,'#c','#v',{blend:{top:s,mode:'dissolve',opacity:1},chromaticAberration:{px:0},lensDistortion:{k:0}},{fps:24});
+var f=1/24,cut=2;
+tl.set(r.blend,{opacity:0},cut);
+tl.to(r.chromaticAberration,{px:8,duration:4*f,ease:'power1.in'},cut-4*f);
+tl.to(r.lensDistortion,{k:0.2,duration:4*f,ease:'power1.in'},cut-4*f);
+tl.to(r.chromaticAberration,{px:0,duration:4*f,ease:'power1.out'},cut);
+tl.to(r.lensDistortion,{k:0,duration:4*f,ease:'power1.out'},cut);
+tl.to({},{duration:6},0);window.__timelines={main:tl};
+fetch('https://content.dashtoon.ai/stability-images/ece0528f-2aa7-434c-a86a-3afffaa341d6.png',{mode:'cors'}).then(function(x){return x.blob()}).then(createImageBitmap).then(function(bm){
+ var x=s.getContext('2d');var sc=Math.max(1280/bm.width,720/bm.height),w=bm.width*sc,h=bm.height*sc;x.drawImage(bm,(1280-w)/2,(720-h)/2,w,h);
+}).catch(function(e){document.getElementById('msg').textContent='ERR '+e.message});
+</script></body></html>

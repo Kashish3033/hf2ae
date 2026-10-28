@@ -1,0 +1,8 @@
+{
+  "name": "x1_dirwhip",
+  "fps": 24,
+  "source": "Frameo › HF Motion Studio Test",
+  "inputs": [ { "file": "src/x1_dirwhip.mp4", "name": "x1_dirwhip", "hyperframes": "src/x1_dirwhip.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

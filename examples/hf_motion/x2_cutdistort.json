@@ -1,0 +1,8 @@
+{
+  "name": "x2_cutdistort",
+  "fps": 24,
+  "source": "Frameo › HF Motion Studio Test",
+  "inputs": [ { "file": "src/x2_cutdistort.mp4", "name": "x2_cutdistort", "hyperframes": "src/x2_cutdistort.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

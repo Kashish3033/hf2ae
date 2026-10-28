@@ -149,3 +149,29 @@ test('hf vector renders map to shape layers, merge paths, gradients and masks', 
   assert.ok(bx.find((it) => it.type === 'rect').size.keys);
   assert.ok(bx.find((it) => it.type === 'fill').color.keys);
 });
+
+test('whip and fx map to eased slides, a blur layer and an RGB-split rig', { skip: !hasMotion && 'run examples/hf_motion/fetch.sh first' }, async () => {
+  const { convert } = await import('../src/cli.js');
+  const out = {};
+  for (const n of ['w2_domwhip', 'x2_cutdistort']) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `hf2ae-${n}-`));
+    const { jsxPath } = await convert(path.join(MOTION, `${n}.json`), dir);
+    const { ctx, files } = mockAE(dir);
+    vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
+    const report = Object.values(files)[0].join('\n');
+    const warnings = report.split('\n').filter((l) => /: /.test(l) && !/^(effect |  |hf2ae report|After Effects)/.test(l));
+    assert.deepEqual(warnings, [], n);
+    out[n] = Object.values(JSON.parse(fs.readFileSync(path.join(dir, 'timeline.json'), 'utf8')).comps).flatMap((c) => c.layers);
+  }
+  // whip: two Easy Ease keys at 3.0s and 3.4s (24fps), the incoming layer from +1280
+  const im = out.w2_domwhip.find((l) => l.name === 'im');
+  assert.deepEqual(im.position.keys.map((k) => [k.f, k.v[0]]), [[72, 1920], [81.6, 640]]);
+  assert.ok(Math.abs(im.position.keys[0].easeOut.influence - 100 / 3) < 1e-6);
+  const blur = out.w2_domwhip.find((l) => l.name === 'Whip blur');
+  assert.equal(blur.kind, 'adjustment');
+  assert.deepEqual(blur.effects[0].props.length.keys.map((k) => k.f), [72, 76.8, 81.6]);
+  // fx: dissolve blend, three channel copies, Optics Compensation
+  assert.equal(out.x2_cutdistort.find((l) => l.name === 'Blend top').blend, 'dissolve');
+  assert.deepEqual(out.x2_cutdistort.filter((l) => l.name.startsWith('RGB split')).map((l) => l.effects[0].props.keep.value).sort(), ['blue', 'green', 'red']);
+  assert.equal(out.x2_cutdistort.find((l) => l.name === 'Lens distortion').effects[0].type, 'opticsCompensation');
+});

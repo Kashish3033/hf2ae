@@ -9,10 +9,11 @@
 import puppeteer from 'puppeteer-core';
 import { pathToFileURL } from 'node:url';
 import { fitCurve } from './fit.js';
-import { P, makeLayer, newId } from './timeline.js';
+import { P, makeLayer, newId, affineProp } from './timeline.js';
 import { psName } from './fonts.js';
 import { installHfPlusStub } from './hfplus_stub.js';
-import { boxLayer, pathLayer, gradientEffect, sweepEffect } from './hfvector.js';
+import { boxLayer, pathLayer, gradientEffect, sweepEffect, transformProps } from './hfvector.js';
+import { applyWhip, fxLayers } from './hffx.js';
 
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -57,6 +58,15 @@ function measure(fps) {
     return el.getAttribute('data-hf2ae');
   };
   const rel = (r) => ({ left: r.left - rootRect.left, top: r.top - rootRect.top, right: r.right - rootRect.left, bottom: r.bottom - rootRect.top });
+  // Layout box without the element's own transform (a whip may already
+  // have moved it); the transform is sampled separately.
+  const untransformedBox = (el) => {
+    const saved = el.style.transform;
+    el.style.transform = 'none';
+    const r = rel(el.getBoundingClientRect());
+    el.style.transform = saved;
+    return r;
+  };
   const opacityOf = (el) => {
     let op = 1;
     for (let n = el; n && n !== root.parentElement; n = n.parentElement) op *= parseFloat(getComputedStyle(n).opacity);
@@ -75,6 +85,7 @@ function measure(fps) {
     else if (el instanceof SVGTextElement) kind = 'svgtext';
     else if (el instanceof HTMLElement && !el.closest('svg') && !el.querySelector('*:not(br)') && el.innerText.trim()) kind = 'text';
     else if (el instanceof SVGPathElement) kind = 'path';
+    else if (el instanceof HTMLCanvasElement && el.getAttribute('data-hf2ae')) kind = 'canvas';
     else if (el instanceof HTMLCanvasElement || el.tagName === 'IFRAME') {
       notes.push(`<${el.tagName.toLowerCase()}> isn't converted yet`);
     } else if (el instanceof HTMLElement && !el.closest('svg')) {
@@ -84,6 +95,7 @@ function measure(fps) {
       if (paints && el.offsetWidth > 0 && el.offsetHeight > 0) kind = 'box';
     }
     if (!kind) return;
+    const paintsBox = () => !/rgba\(\d+, \d+, \d+, 0\)|transparent/.test(cs.backgroundColor) || parseFloat(cs.borderTopWidth) > 0;
 
     const clip = el.closest('.clip') || root;
     const start = parseFloat(clip.getAttribute('data-start') || 0);
@@ -96,20 +108,29 @@ function measure(fps) {
     };
 
     if (kind === 'text') {
+      // Where the glyphs actually are: a Range around the text, not the
+      // element's box (flex or padding can centre text whose text-align is
+      // "start"). Baseline = bottom of the first line's content area minus
+      // the font's descent.
       const saved = el.style.transform;
       el.style.transform = 'none';
       const r = el.getBoundingClientRect();
-      const marker = document.createElement('span');
-      marker.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline;';
-      el.insertBefore(marker, el.firstChild);
-      const baseline = marker.getBoundingClientRect().top - rootRect.top;
-      marker.remove();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const lines = [...range.getClientRects()].filter((q) => q.width > 0);
+      const first = lines[0] || r;
+      const left = Math.min(...lines.map((q) => q.left)), right = Math.max(...lines.map((q) => q.right));
+      const probe = document.createElement('canvas').getContext('2d');
+      probe.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const descent = probe.measureText('Hg').fontBoundingBoxDescent;
+      const baseline = first.bottom - descent - rootRect.top;
       el.style.transform = saved;
       Object.assign(item, {
         text: el.innerText, font: fontOf(cs),
         letterSpacing: cs.letterSpacing === 'normal' ? 0 : parseFloat(cs.letterSpacing),
         lineHeight: cs.lineHeight === 'normal' ? null : parseFloat(cs.lineHeight),
         color: cs.color, textShadow: cs.textShadow, textAlign: cs.textAlign, box: rel(r), baseline,
+        ink: { left: (lines.length ? left : r.left) - rootRect.left, right: (lines.length ? right : r.right) - rootRect.left },
       });
     } else if (kind === 'svgtext') {
       // Baseline: compare with an alphabetic-baseline copy, transforms off.
@@ -141,6 +162,8 @@ function measure(fps) {
         hasImage: cs.backgroundImage !== 'none',
       });
       item.samples = { ...item.samples, rect: [], color: [], clip: [] };
+    } else if (kind === 'canvas') {
+      Object.assign(item, { box: untransformedBox(el) });
     } else if (kind === 'path') {
       const d = el.getAttribute('d') || '';
       const m = /^M(9\d{5}) 0Z$/.exec(d);
@@ -154,14 +177,25 @@ function measure(fps) {
       item.samples.shape = [];
     } else {
       Object.assign(item, {
-        src: el.currentSrc || el.src, box: rel(el.getBoundingClientRect()), fit: cs.objectFit,
+        src: el.currentSrc || el.src, box: untransformedBox(el), fit: cs.objectFit,
       });
     }
     items.push(item);
+    // A text element that also paints a background (a label on a card) is
+    // a box and a text layer.
+    if (kind === 'text' && paintsBox() && el.offsetWidth > 0) {
+      items.push({
+        ...item, kind: 'box', tag: `${item.tag}-box`, order: order - 0.5,
+        radius: [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].map(parseFloat),
+        border: parseFloat(cs.borderTopWidth) > 0 ? { width: parseFloat(cs.borderTopWidth), color: cs.borderTopColor } : null,
+        hasImage: cs.backgroundImage !== 'none',
+        samples: { opacity: [], m: [], rect: [], color: [], clip: [] },
+      });
+    }
   });
 
   const byTag = Object.fromEntries(items.map((it) => [it.tag, it]));
-  const elOf = (t) => root.querySelector(`[data-hf2ae="${t}"]`);
+  const elOf = (t) => root.querySelector(`[data-hf2ae="${t.replace(/-box$/, '')}"]`);
   // GSAP hangs its own (circular) state on the selector objects it tweens, so
   // only plain fields leave the page.
   const animates = rec.animates.map((a) => ({
@@ -173,6 +207,9 @@ function measure(fps) {
   const gradients = (rec.gradients || []).map((g) => ({ el: g.el, obj: g.obj, samples: [] }));
   const sweeps = (rec.sweeps || []).map((g) => ({ el: g.el, obj: g.obj, samples: [] }));
   const lives = (rec.lives || []).map((lv) => ({ el: lv.el, fn: lv.fn, st: lv.st, samples: [] }));
+  const fxs = (rec.fxs || []).map((fx) => ({ ...fx, samples: [] }));
+  // Off-screen canvases (fx images) can only travel as PNG data.
+  const png = (c) => { try { return c && c.toDataURL ? c.toDataURL('image/png') : null; } catch { return null; } };
 
   for (let f = 0; f < frames; f++) {
     if (tl) tl.seek(f / fps, false);
@@ -196,6 +233,10 @@ function measure(fps) {
         it.samples.rect.push([r.left, r.top, r.right - r.left, r.bottom - r.top]);
         it.samples.color.push(cs.backgroundColor);
         it.samples.clip.push(cs.clipPath);
+      } else if (it.kind === 'video' || it.kind === 'image' || it.kind === 'canvas') {
+        const t = getComputedStyle(el).transform;
+        const m = new DOMMatrix(t === 'none' ? undefined : t);
+        it.samples.m.push([m.a, m.b, m.c, m.d, m.e, m.f]);
       } else if (it.kind === 'text') {
         const t = getComputedStyle(el).transform;
         const m = new DOMMatrix(t === 'none' ? undefined : t);
@@ -207,6 +248,7 @@ function measure(fps) {
     for (const g of gradients) g.samples.push(values(g.obj));
     for (const g of sweeps) g.samples.push(values(g.obj));
     for (const lv of lives) lv.samples.push(JSON.parse(JSON.stringify(lv.fn(lv.st))));
+    for (const fx of fxs) fx.samples.push(Object.fromEntries(Object.entries(fx.ops).map(([k, o]) => [k, values(o)])));
     animates.forEach((a, i) => rec.animates[i].selectors.forEach((sel, j) => {
       a.samples[j].start.push(sel.start);
       a.samples[j].end.push(sel.end);
@@ -222,10 +264,15 @@ function measure(fps) {
   const bg = getComputedStyle(root).backgroundColor;
   const stylesheets = [...document.querySelectorAll('link[rel="stylesheet"]')].map((l) => l.href);
   const plain = (list) => list.map((g) => ({ el: g.el, samples: g.samples }));
+  const fxOut = fxs.map((fx) => ({
+    canvas: fx.canvas, source: fx.source, sourceImage: png(fx.sourceCanvas), samples: fx.samples,
+    ops: Object.keys(fx.ops), tops: Object.fromEntries(Object.entries(fx.tops).map(([k, c]) => [k, png(c)])),
+  }));
   return {
     compId, w, h, frames, items, animates: animates.filter((a) => byTag[a.el]), mattes, background: bg,
     gradients: plain(gradients), sweeps: plain(sweeps), lives: plain(lives), shapes: rec.shapes || {},
     approximations: rec.approximations || [], unsupported: rec.unsupported, notes, stylesheets, hasTimeline: !!tl,
+    whips: rec.whips || [], binds: rec.binds || [], fxs: fxOut, particles: rec.particles || [],
   };
 }
 
@@ -275,8 +322,9 @@ function textLayers(item, fps, notes, animate) {
   const justify = item.textAlign === 'right' || item.textAlign === 'end' ? 'right'
     : item.textAlign === 'center' ? 'center' : 'left';
   // CSS adds letter-spacing after the last glyph too; AE doesn't.
-  const origin = item.origin ? item.origin.map(round2) : [round2(justify === 'right' ? item.box.right - ls
-    : justify === 'center' ? (item.box.left + item.box.right - ls) / 2 : item.box.left), round2(item.baseline)];
+  const ink = item.ink || item.box;
+  const origin = item.origin ? item.origin.map(round2) : [round2(justify === 'right' ? ink.right - ls
+    : justify === 'center' ? (ink.left + ink.right - ls) / 2 : ink.left), round2(item.baseline)];
   const font = psName(item.font);
   if (!font.known) notes.push(`Font "${item.font.family}" ${item.font.weight}: PostScript name guessed as ${font.name}; check it is installed`);
 
@@ -286,7 +334,10 @@ function textLayers(item, fps, notes, animate) {
     sx: ms.map((m) => Math.hypot(m[0], m[1]) * 100), sy: ms.map((m) => Math.hypot(m[2], m[3]) * 100),
     rot: ms.map((m) => Math.atan2(m[1], m[0]) * 180 / Math.PI),
   };
-  const moves = ['tx', 'ty', 'sx', 'sy', 'rot'].some((k) => Math.max(...s[k]) - Math.min(...s[k]) > 0.01);
+  // Animated or not, any transform (a card rotated once) has to be kept.
+  const moves = ['tx', 'ty', 'sx', 'sy', 'rot'].some((k) => Math.max(...s[k]) - Math.min(...s[k]) > 0.01)
+    || s.tx.some((v) => Math.abs(v) > 0.01) || s.ty.some((v) => Math.abs(v) > 0.01) || s.rot.some((v) => Math.abs(v) > 0.01)
+    || s.sx.some((v) => Math.abs(v - 100) > 0.01) || s.sy.some((v) => Math.abs(v - 100) > 0.01);
   const opacity = fitCurve(item.samples.opacity.map((v) => v * alpha), { tol: 0.5, fps });
   let anchor = P([0, 0]), position = P(origin), scale = P([100, 100]), rotation = P(0);
   if (item.kind === 'svgtext') {
@@ -458,12 +509,16 @@ async function mediaLayer(item, resolveMedia, fps, notes) {
   if (item.fit === 'cover' && (ftg.w * sx > bw + 0.5 || ftg.h * sy > bh + 0.5)) {
     notes.push(`${item.id || item.src}: object-fit cover spills past its box; add a mask in AE if the box isn't the whole frame`);
   }
+  // Transforms (GSAP x/y, scale, rotation) pivot on the box centre, like the anchor.
+  const c = [(item.box.left + item.box.right) / 2, (item.box.top + item.box.bottom) / 2];
+  const t = transformProps(item.samples.m, item.samples.m.map(() => c), fps);
   return makeLayer({
     name: item.id || ftg.name, kind: 'footage', source: ftg.id, w: ftg.w, h: ftg.h, tag: item.tag,
     inFrame: item.inFrame, outFrame: item.outFrame, startFrame: item.kind === 'video' ? item.inFrame : 0,
     anchor: P([ftg.w / 2, ftg.h / 2]),
-    position: P([round2((item.box.left + item.box.right) / 2), round2((item.box.top + item.box.bottom) / 2)]),
-    scale: P([round2(sx * 100), round2(sy * 100)]),
+    position: t.position,
+    scale: affineProp(t.scale, [sx, sy]),
+    rotation: t.rotation,
     opacity: fitCurve(item.samples.opacity, { tol: 0.5, fps }),
   });
 }
@@ -502,10 +557,34 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference, res
     // Lower data-track-index draws first (bottom), then document order.
     const items = [...m.items].sort((a, b) => a.track - b.track || a.order - b.order);
     const gradOf = (t) => m.gradients.find((g) => g.el === t);
+    const fxSources = new Set(m.fxs.map((x) => x.source).filter(Boolean));
+    const fxSourceLayers = {};
     const sweepOf = (t) => m.sweeps.find((g) => g.el === t);
     for (const it of items) {
       if (it.kind === 'video' || it.kind === 'image') {
-        layers.push(await mediaLayer(it, resolveMedia, fps, notes));
+        const l = await mediaLayer(it, resolveMedia, fps, notes);
+        // An fx source is drawn only through its canvas; pages hide the
+        // element itself (video{opacity:0}), which doesn't apply there.
+        if (fxSources.has(it.tag)) { l.opacity = P(100); fxSourceLayers[it.tag] = l; } else layers.push(l);
+        continue;
+      }
+      if (it.kind === 'canvas') {
+        const fx = m.fxs.find((x) => x.canvas === it.tag);
+        const pt = m.particles.find((x) => x.canvas === it.tag);
+        const bw = Math.round(it.box.right - it.box.left), bh = Math.round(it.box.bottom - it.box.top);
+        if (fx) {
+          const l = await fxLayers(fx, {
+            fps, frames: m.frames, w: bw, h: bh, comps, notes, resolveMedia,
+            name: `fx ${it.id || it.tag}`, source: fx.source ? fxSourceLayers[fx.source] : null,
+          });
+          l.position = P([round2(it.box.left + bw / 2), round2(it.box.top + bh / 2)]);
+          l.inFrame = it.inFrame; l.outFrame = it.outFrame;
+          layers.push(l);
+        } else if (pt) {
+          notes.push(`${it.id || 'canvas'}: particles are recorded but not converted yet`);
+        } else {
+          notes.push(`${it.id || 'canvas'}: canvas drawn by page script isn't converted`);
+        }
         continue;
       }
       if (it.kind === 'box') {
@@ -561,6 +640,15 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference, res
       }
     }
 
+    // hfPlus.whip: the slide is keyed from the sampled transforms; add the
+    // blur and trim the layers.
+    for (const w of m.whips) {
+      const pair = { out: layers.find((l) => l.tag === w.out), in: layers.find((l) => l.tag === w.in) };
+      const blur = applyWhip(w, pair, { fps, compW: m.w, compH: m.h });
+      const top = Math.max(...[pair.out, pair.in].filter(Boolean).map((l) => layers.indexOf(l)));
+      layers.splice(top + 1, 0, blur);
+    }
+
     // hfPlus.composite.matte -> track matte: the matte layer sits right above
     // the layer it cuts.
     for (const mt of m.mattes) {
@@ -588,7 +676,7 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference, res
     for (const c of Object.values(comps)) for (const l of c.layers) delete l.tag;
     const comp = { name: name || m.compId, w: m.w, h: m.h, frames: m.frames, layers, stylesheets: m.stylesheets };
     if (camera) comp.camera = camera;
-    return { comp, comps, notes };
+    return { comp, comps, notes: [...new Set(notes)] };
   } finally {
     await browser.close();
   }

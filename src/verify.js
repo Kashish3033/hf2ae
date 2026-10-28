@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { CALIBRATION } from './ffreader.js';
+import { FX_CAL } from './hffx.js';
 
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PAGE_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'preview_page.js');
@@ -96,7 +97,7 @@ export async function verify(outDir, { comp: compName, ref, bg = '#808080' }) {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.address().port}/preview.html`, { waitUntil: 'networkidle0', timeout: 60000 });
     await page.addScriptTag({ path: PAGE_SCRIPT });
-    fonts = await page.evaluate((d, cal, vf) => window.hf2aePreview.init(d, cal, vf), data, CALIBRATION, videoFrames);
+    fonts = await page.evaluate((d, cal, vf) => window.hf2aePreview.init(d, cal, vf), data, { ...CALIBRATION, ...FX_CAL }, videoFrames);
     for (let f = 0; f < comp.frames; f++) {
       const b64 = await page.evaluate((id, n, color) => window.hf2aePreview.frame(id, n, color), compId, f, bg);
       fs.writeFileSync(path.join(dir, `preview_${String(f).padStart(3, '0')}.png`), Buffer.from(b64, 'base64'));

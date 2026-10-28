@@ -1,0 +1,8 @@
+{
+  "name": "p1_particles",
+  "fps": 30,
+  "source": "Frameo › HF Motion Studio Test › F Canvas2D",
+  "inputs": [ { "file": "src/p1_particles.mp4", "name": "p1_particles", "hyperframes": "src/p1_particles.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

@@ -100,7 +100,7 @@ function decompose([a, b, c, d]) {
   return { sx: sx * 100, sy: sy * 100, rot: rot * 180 / Math.PI, skew: Math.atan(shear) * 180 / Math.PI };
 }
 
-function transformProps(ms, centres, fps) {
+export function transformProps(ms, centres, fps) {
   const parts = ms.map(decompose);
   const position = fitVector([centres.map((c, f) => c[0] + ms[f][4]), centres.map((c, f) => c[1] + ms[f][5])], { fps, spatial: true });
   const scale = fitVector([parts.map((p) => p.sx), parts.map((p) => p.sy)], { tol: 0.05, fps });

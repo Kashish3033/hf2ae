@@ -15,6 +15,7 @@
 export function installHfPlusStub() {
   const rec = window.__hf2ae = {
     animates: [], mattes: [], gradients: [], sweeps: [], shapes: {}, lives: [], approximations: [], unsupported: [], n: 0,
+    whips: [], binds: [], fxs: [], particles: [],
   };
   const tag = (el) => {
     if (typeof el === 'string') el = document.querySelector(el);
@@ -195,7 +196,171 @@ export function installHfPlusStub() {
     },
   };
 
+
+  // ---- whip ------------------------------------------------------------------
+  // Read off "P3 C10 paintPath whip state", which prints whip.state() every
+  // frame: pos = smoothstep(p) (AE's Easy Ease), the outgoing element moves
+  // distance*pos along `angle`, the incoming one arrives from the opposite
+  // side, and the blur's standard deviation is blur*4p(1-p) along the move.
+  const smooth = (p) => { const q = Math.min(Math.max(p, 0), 1); return q * q * (3 - 2 * q); };
+  const whipState = (p, o = {}) => {
+    const q = Math.min(Math.max(p, 0), 1), pos = smooth(q);
+    const a = ((o.angle ?? 180) * Math.PI) / 180, d = o.distance ?? 0, b = o.blur ?? 40;
+    const dir = [Math.cos(a), Math.sin(a)];
+    const sd = b * 4 * q * (1 - q);
+    return {
+      pos,
+      out: [dir[0] * d * pos, dir[1] * d * pos],
+      in: [-dir[0] * d * (1 - pos), -dir[1] * d * (1 - pos)],
+      std: [Math.abs(dir[0]) * sd, Math.abs(dir[1]) * sd],
+    };
+  };
+  const whip = (tl, outEl, inEl, opts) => {
+    const isEl = (x) => typeof x === 'string' || x instanceof Element;
+    if (!isEl(inEl)) { opts = inEl; inEl = null; }
+    opts = opts || {};
+    outEl = outEl && tag(outEl);
+    inEl = inEl && tag(inEl);
+    const a = ((opts.angle ?? 180) * Math.PI) / 180;
+    const box = (outEl || inEl).parentElement.getBoundingClientRect();
+    const o = {
+      at: opts.at ?? 0, duration: opts.duration ?? 0.4, angle: opts.angle ?? 180,
+      distance: opts.distance ?? Math.abs(Math.cos(a)) * box.width + Math.abs(Math.sin(a)) * box.height,
+      blur: opts.blur ?? 40,
+    };
+    const apply = (p) => {
+      const st = whipState(p, o);
+      const blur = (v) => (v > 0.01 ? `blur(${v}px)` : 'none');
+      if (outEl) gsap.set(outEl, { x: st.out[0], y: st.out[1], filter: blur(Math.max(...st.std)) });
+      if (inEl) gsap.set(inEl, { x: st.in[0], y: st.in[1], filter: blur(Math.max(...st.std)) });
+    };
+    const clock = { _p: 0, get p() { return this._p; }, set p(v) { this._p = v; apply(v); } };
+    clock.p = 0;
+    tl.fromTo(clock, { p: 0 }, { p: 1, duration: o.duration, ease: 'none', immediateRender: false }, o.at);
+    rec.whips.push({ out: outEl && outEl.getAttribute('data-hf2ae'), in: inEl && inEl.getAttribute('data-hf2ae'), opts: o });
+    return undefined;
+  };
+  whip.state = whipState;
+
+  // ---- expr --------------------------------------------------------------------
+  // bind() runs the page's functions of time on every frame, as GSAP sets;
+  // the reader samples the result like any other animation. lookAt and the
+  // page's own functions are exact. noise and the seeded randoms are this
+  // stand-in's own generators, so their values differ from Frameo's.
+  const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+  const noise1 = (seed, x) => {
+    const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
+    const g = (k) => hash(k * 1.13 + seed * 57.3) * 2 - 1;
+    return g(i) * (1 - u) + g(i + 1) * u;
+  };
+  const rng = (seed) => {
+    let st = (Math.floor(seed * 2654435761) >>> 0) || 1;
+    return () => { st ^= st << 13; st >>>= 0; st ^= st >>> 17; st ^= st << 5; st >>>= 0; return st / 4294967296; };
+  };
+  const ctxFor = (el, i, seed) => ({
+    el, index: i,
+    noise: (x) => noise1(seed + i, x),
+    seedRandom(sd) { this._r = rng(seed * 1000 + sd * 31 + i + 1); },
+    random(a = 0, b = 1) { if (!this._r) this._r = rng(seed + i + 1); return a + (b - a) * this._r(); },
+    gaussRandom(a = 0, b = 1) {
+      if (!this._r) this._r = rng(seed + i + 1);
+      const g = Math.sqrt(-2 * Math.log(this._r() || 1e-9)) * Math.cos(2 * Math.PI * this._r());
+      return (a + b) / 2 + Math.max(-1, Math.min(1, g / 3)) * (b - a) / 2;
+    },
+  });
+  // AE-style spring between held key values: x'' = -w^2 (x - target) - 2 z w x'.
+  const springTrack = (keys, o = {}) => {
+    const w = 2 * Math.PI * (o.frequency ?? 2), z = o.damping ?? 0.5, dt = 1 / 1000;
+    const end = keys[keys.length - 1].t + 10;
+    const table = [];
+    let x = keys[0].v, v = 0;
+    for (let k = 0, t = 0; t <= end; t += dt, k++) {
+      let target = keys[0].v;
+      for (const key of keys) if (t >= key.t) target = key.v;
+      if (k % 4 === 0) table.push(x);
+      v += (-w * w * (x - target) - 2 * z * w * v) * dt;
+      x += v * dt;
+    }
+    return { valueAtTime: (t) => table[Math.min(table.length - 1, Math.max(0, Math.round(t / (4 * dt))))] };
+  };
+  const expr = {
+    bind(tl, sel, props, o = {}) {
+      const els = typeof sel === 'string' ? [...document.querySelectorAll(sel)] : [sel];
+      const dur = o.duration ?? 6;
+      const ctxs = els.map((el, i) => ctxFor(el, i, o.seed ?? 0));
+      const clock = {
+        _t: 0, get t() { return this._t; },
+        set t(v) {
+          this._t = v;
+          els.forEach((el, i) => {
+            const vals = {};
+            for (const [k, fn] of Object.entries(props)) vals[k] = fn(v, ctxs[i]);
+            gsap.set(el, vals);
+          });
+        },
+      };
+      clock.t = 0;
+      tl.fromTo(clock, { t: 0 }, { t: dur, duration: dur, ease: 'none', immediateRender: false }, 0);
+      els.forEach((el) => tag(el));
+      rec.binds.push({ els: els.map((el) => el.getAttribute('data-hf2ae')), props: Object.keys(props) });
+      if (Object.values(props).some((fn) => /noise|random|gaussRandom/i.test(String(fn)))) {
+        approx('expr noise / seeded random values come from this converter, not Frameo\'s generator');
+      }
+    },
+    lookAt: (a, b) => (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI,
+    noise: (seed, x) => (x === undefined ? noise1(0, seed) : noise1(seed, x)),
+    springTrack,
+  };
+
+  // ---- fx ------------------------------------------------------------------------
+  // fx(tl, canvas, source, ops) draws `source` into `canvas` through a chain of
+  // ops each frame. Recorded with live op objects (GSAP tweens them); the
+  // converter rebuilds the canvas as AE layers and effects.
+  const FX_OPS = ['blend', 'directionalBlur', 'whip', 'chromaticAberration', 'lensDistortion', 'grain', 'spinBlur'];
+  const fx = (tl, canvas, source, ops = {}, o = {}) => {
+    canvas = tag(canvas);
+    const srcEl = typeof source === 'string' || source instanceof Element ? tag(source) : null;
+    const live = {}, tops = {};
+    for (const [name, params] of Object.entries(ops)) {
+      const { top, ...rest } = params || {};
+      if (top) tops[name] = top;
+      live[name] = { ...rest };
+      if (!FX_OPS.includes(name)) approx(`fx op "${name}" has no After Effects mapping yet`);
+    }
+    rec.fxs.push({ canvas: canvas.getAttribute('data-hf2ae'), source: srcEl && srcEl.getAttribute('data-hf2ae'), sourceCanvas: srcEl ? null : source, ops: live, tops });
+    return live;
+  };
+  for (const k of ['outline', 'crtOverlay', 'ascii']) fx[k] = (...a) => unknown(`hfPlus.fx.${k}`)(...a);
+
+  // ---- particles ---------------------------------------------------------------
+  // Seeded emitters drawn into a canvas. Recorded (sprites saved as images)
+  // for the converter; the particles themselves are random, so no render can
+  // match Frameo's frame for frame.
+  const snapshotSprites = (cfg) => ({
+    ...cfg,
+    emitters: (cfg.emitters || []).map((e) => ({
+      ...e,
+      sprite: e.sprite instanceof HTMLCanvasElement ? { image: e.sprite.toDataURL('image/png'), w: e.sprite.width, h: e.sprite.height } : e.sprite,
+    })),
+  });
+  const particles = {
+    attach(tl, canvas, cfg = {}) {
+      canvas = tag(canvas);
+      rec.particles.push({ canvas: canvas.getAttribute('data-hf2ae'), cfg: snapshotSprites(cfg) });
+      return { render() {} };
+    },
+    create(canvas, cfg = {}) {
+      canvas = tag(canvas);
+      rec.particles.push({ canvas: canvas.getAttribute('data-hf2ae'), cfg: snapshotSprites(cfg), manual: true });
+      return { render() {} };
+    },
+  };
+
   window.hfPlus = ns('hfPlus', {
+    whip,
+    expr: ns('hfPlus.expr', expr),
+    fx,
+    particles: ns('hfPlus.particles', particles),
     ease: ns('hfPlus.ease', ease),
     gradient,
     sweep,

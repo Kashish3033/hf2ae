@@ -15,7 +15,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { GraphReader } from './ffreader.js';
 import { readHyperframes } from './hfreader.js';
 import { writeJsx } from './jsxwriter.js';
@@ -36,6 +37,15 @@ function probe(file) {
 // A <video>/<img> the HyperFrames page loads: download it once next to the
 // shot (src/remote/) and register it as footage.
 async function resolveMedia(url, cacheDir, footage) {
+  if (url.startsWith('data:')) {
+    // A canvas the page drew (fx images, sprites): save it once by content.
+    const m = /^data:image\/(\w+);base64,(.*)$/.exec(url);
+    if (!m) throw new Error('unsupported data URL');
+    const buf = Buffer.from(m[2], 'base64');
+    const file = path.join(cacheDir, `canvas-${createHash('sha1').update(buf).digest('hex').slice(0, 12)}.${m[1]}`);
+    if (!fs.existsSync(file)) { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(file, buf); }
+    url = pathToFileURL(file).href;
+  }
   const u = new URL(url);
   const file = u.protocol === 'file:' ? fileURLToPath(u) : path.join(cacheDir, path.basename(u.pathname));
   if (u.protocol !== 'file:' && !fs.existsSync(file)) {

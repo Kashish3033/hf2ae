@@ -1,0 +1,8 @@
+{
+  "name": "e1_expr",
+  "fps": 24,
+  "source": "Frameo › HF Motion Studio Test",
+  "inputs": [ { "file": "src/e1_expr.mp4", "name": "e1_expr", "hyperframes": "src/e1_expr.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

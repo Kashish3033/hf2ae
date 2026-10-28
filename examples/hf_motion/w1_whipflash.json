@@ -1,0 +1,8 @@
+{
+  "name": "w1_whipflash",
+  "fps": 30,
+  "source": "Frameo › HF Motion Studio Test",
+  "inputs": [ { "file": "src/w1_whipflash.mp4", "name": "w1_whipflash", "hyperframes": "src/w1_whipflash.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

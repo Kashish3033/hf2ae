@@ -28,7 +28,7 @@
       fixed: [[['ADBE Noise-0002', 'Noise Type'], 0], [['ADBE Noise-0003', 'Clipping'], 1]] },
     radialBlur: { match: 'ADBE Radial Blur', props: {
       amount: ['ADBE Radial Blur-0001', 'Amount'], center: ['ADBE Radial Blur-0002', 'Center'] },
-      fixed: [[['ADBE Radial Blur-0003', 'Type'], 2], [['ADBE Radial Blur-0004', 'Antialiasing (Best Quality)'], 2]] },
+      fixed: [[['ADBE Radial Blur-0004', 'Antialiasing (Best Quality)'], 2]] },
     gaussianBlur: { match: 'ADBE Gaussian Blur 2', props: { blurriness: ['ADBE Gaussian Blur 2-0001', 'Blurriness'] },
       fixed: [[['ADBE Gaussian Blur 2-0003', 'Repeat Edge Pixels'], 1]] },
     invert: { match: 'ADBE Invert', props: {} },
@@ -36,6 +36,11 @@
       rr: ['Red-Red'], rg: ['Red-Green'], rb: ['Red-Blue'], gr: ['Green-Red'], gg: ['Green-Green'], gb: ['Green-Blue'],
       br: ['Blue-Red'], bg: ['Blue-Green'], bb: ['Blue-Blue'] } },
     fill: { match: 'ADBE Fill', props: { color: ['ADBE Fill-0002', 'Color'] } },
+    directionalBlur: { match: 'ADBE Motion Blur', props: {
+      direction: ['ADBE Motion Blur-0001', 'Direction'], length: ['ADBE Motion Blur-0002', 'Blur Length'] } },
+    // Shift Channels: keep one channel, the others Full Off.
+    shiftChannels: { match: 'ADBE Shift Channels', props: {} },
+    opticsCompensation: { match: 'ADBE Optics Compensation', props: { fov: ['ADBE Optics Compensation-0001', 'Field Of View (FOV)'] } },
     lightSweep: { match: 'CC Light Sweep', props: {
       center: ['CC Light Sweep-0001', 'Center'], direction: ['CC Light Sweep-0002', 'Direction'],
       width: ['CC Light Sweep-0004', 'Width'], intensity: ['CC Light Sweep-0005', 'Sweep Intensity'],
@@ -53,7 +58,11 @@
     overlay: BlendingMode.OVERLAY, addition: BlendingMode.ADD, lighten: BlendingMode.LIGHTEN,
     darken: BlendingMode.DARKEN, difference: BlendingMode.DIFFERENCE,
     softlight: BlendingMode.SOFT_LIGHT, hardlight: BlendingMode.HARD_LIGHT,
-    luminosity: BlendingMode.LUMINOSITY, color: BlendingMode.COLOR
+    luminosity: BlendingMode.LUMINOSITY, color: BlendingMode.COLOR,
+    dissolve: BlendingMode.DISSOLVE, subtract: BlendingMode.SUBTRACT, divide: BlendingMode.DIVIDE,
+    lighterColor: BlendingMode.LIGHTER_COLOR, darkerColor: BlendingMode.DARKER_COLOR,
+    colorDodge: BlendingMode.COLOR_DODGE, colorBurn: BlendingMode.COLOR_BURN, exclusion: BlendingMode.EXCLUSION,
+    hue: BlendingMode.HUE, saturation: BlendingMode.SATURATION
   };
 
   var INTERP = { linear: KeyframeInterpolationType.LINEAR, bezier: KeyframeInterpolationType.BEZIER, hold: KeyframeInterpolationType.HOLD };
@@ -201,7 +210,7 @@
       log.push('effect ' + spec.match + ':\n' + lines.join('\n'));
     }
     for (var key in fx.props) {
-      if (key == 'kind') continue;
+      if (key == 'kind' || key == 'keep') continue;
       var names = spec.props[key];
       var p = names ? findProp(e, names) : null;
       if (!p) { warn(where + ': ' + fx.type + ' has no property ' + key); continue; }
@@ -212,6 +221,19 @@
         map = (function (pp) { return function (v) { return (pp.hasMax && pp.maxValue > 100) ? v * 2.55 : v; }; })(p);
       }
       setProp(p, fx.props[key], map, where + ' ' + fx.name + '.' + key);
+    }
+    if (fx.type == 'shiftChannels') {
+      // Take <channel> From: 2 Red, 3 Green, 4 Blue ... 11 Full Off (popup order in AE).
+      var CH = { red: 2, green: 3, blue: 4 }, keep = fx.props.keep.value;
+      var takes = [['ADBE Shift Channels-0002', 'Take Red From', 'red'], ['ADBE Shift Channels-0003', 'Take Green From', 'green'], ['ADBE Shift Channels-0004', 'Take Blue From', 'blue']];
+      for (var t = 0; t < takes.length; t++) {
+        var tp = findProp(e, [takes[t][0], takes[t][1]]);
+        if (tp) tp.setValue(takes[t][2] == keep ? CH[keep] : 11);
+      }
+    }
+    if (fx.type == 'radialBlur') {
+      var rt = findProp(e, ['ADBE Radial Blur-0003', 'Type']);
+      if (rt) rt.setValue(fx.props.kind && fx.props.kind.value == 'spin' ? 1 : 2);
     }
     if (spec.fixed) {
       for (var i = 0; i < spec.fixed.length; i++) {

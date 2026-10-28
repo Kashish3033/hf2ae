@@ -556,6 +556,50 @@
       case 'gradient':
       case 'lightSweep':
         return c; // drawn as the solid's pixels
+      case 'directionalBlur': {
+        // Gaussian along the direction (AE: 0 = vertical, 90 = horizontal),
+        // as three box passes of running averages.
+        const sigma = v('length') / CAL.blurLengthPerSigma;
+        if (!(sigma > 0.3)) return c;
+        const a = (v('direction') * Math.PI) / 180, dir = [Math.sin(a), -Math.cos(a)];
+        const width = Math.max(1, Math.round(Math.sqrt(4 * sigma * sigma + 1)));
+        let cur = c;
+        for (let pass = 0; pass < 3; pass++) {
+          const out = canvas(c.width, c.height), ctx = out.getContext('2d');
+          for (let i = 0; i < width; i++) {
+            const o = i - (width - 1) / 2;
+            ctx.globalAlpha = 1 / (i + 1);
+            ctx.drawImage(cur, dir[0] * o, dir[1] * o);
+          }
+          cur = out;
+        }
+        return cur;
+      }
+      case 'shiftChannels': {
+        const keep = { red: 0, green: 1, blue: 2 }[fx.props.keep.value];
+        pixels(c, (d, i) => { for (let k = 0; k < 3; k++) if (k !== keep) d[i + k] = 0; });
+        return c;
+      }
+      case 'opticsCompensation': {
+        // Barrel distortion as hf2ae maps lensDistortion: k = FOV / opticsFovPerK,
+        // a source radius r * (1 + k r^2), r normalised to the half diagonal.
+        const k = v('fov') / CAL.opticsFovPerK;
+        if (Math.abs(k) < 1e-4) return c;
+        const W = c.width, H = c.height, R = Math.hypot(W, H) / 2;
+        const src = c.getContext('2d').getImageData(0, 0, W, H).data;
+        const out = canvas(W, H), octx = out.getContext('2d'), img = octx.createImageData(W, H), d = img.data;
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            const nx = (x - W / 2) / R, ny = (y - H / 2) / R, f = 1 + k * (nx * nx + ny * ny);
+            const sx = Math.round(W / 2 + nx * f * R), sy = Math.round(H / 2 + ny * f * R);
+            if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
+            const si = (sy * W + sx) * 4, di = (y * W + x) * 4;
+            d[di] = src[si]; d[di + 1] = src[si + 1]; d[di + 2] = src[si + 2]; d[di + 3] = src[si + 3];
+          }
+        }
+        octx.putImageData(img, 0, 0);
+        return out;
+      }
       default:
         notes.add(`preview has no ${fx.type} effect`);
         return c;
@@ -565,7 +609,8 @@
   const BLEND = {
     normal: 'source-over', screen: 'screen', multiply: 'multiply', overlay: 'overlay', addition: 'lighter',
     lighten: 'lighten', darken: 'darken', difference: 'difference', softlight: 'soft-light', hardlight: 'hard-light',
-    luminosity: 'luminosity', color: 'color',
+    luminosity: 'luminosity', color: 'color', dissolve: 'source-over', exclusion: 'exclusion',
+    colorDodge: 'color-dodge', colorBurn: 'color-burn', hue: 'hue', saturation: 'saturation',
   };
 
   const notes = new Set();

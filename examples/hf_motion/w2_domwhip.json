@@ -1,0 +1,8 @@
+{
+  "name": "w2_domwhip",
+  "fps": 24,
+  "source": "Frameo › HF Motion Studio Test",
+  "inputs": [ { "file": "src/w2_domwhip.mp4", "name": "w2_domwhip", "hyperframes": "src/w2_domwhip.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}
