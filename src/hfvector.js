@@ -9,7 +9,7 @@
 //   - hfPlus.sweep           -> CC Light Sweep, centre keyed
 
 import { fitCurve } from './fit.js';
-import { P, makeLayer } from './timeline.js';
+import { P, makeLayer, affineProp } from './timeline.js';
 
 const round2 = (v) => Math.round(v * 100) / 100;
 
@@ -158,13 +158,26 @@ export function boxLayer(item, { fps, gradient, sweep, notes }) {
 
   if (gradient) {
     if (sizeChanges) notes.push(`${name}: gradient box changes size; the solid keeps its first size`);
+    // Polar Coordinates only fills the circle inside its layer, so a conic
+    // gradient is drawn on a square as wide as the box's diagonal, inside a
+    // precomp the size of the box (AE applies masks before effects, so a
+    // mask can't crop it).
+    const conic = gradient.props.mode.value === 'conic';
+    const sw = conic ? Math.ceil(Math.hypot(w, h)) : Math.round(w), sh = conic ? sw : Math.round(h);
+    const dx = (sw - w) / 2, dy = (sh - h) / 2;
+    if (conic) gradient.props.center = affineProp(gradient.props.center, 1, [dx, dy]);
     const layer = makeLayer({
-      name, kind: 'solid', w: Math.round(w), h: Math.round(h), color: [1, 1, 1], tag: item.tag,
+      name, kind: 'solid', w: sw, h: sh, color: [1, 1, 1], tag: item.tag,
       inFrame: item.inFrame, outFrame: item.outFrame,
-      anchor: P([Math.round(w) / 2, Math.round(h) / 2]), position, scale, rotation, opacity,
+      anchor: P([sw / 2, sh / 2]), position, scale, rotation, opacity,
       effects: [gradient, ...(sweep ? [sweep] : [])],
     });
-    if (mask && !mask.unsupported) layer.masks = [shiftMask(mask, w / 2, h / 2)];
+    if (mask && !mask.unsupported) layer.masks = [shiftMask(mask, sw / 2, sh / 2)];
+    if (conic) {
+      // The caller turns this into a box-sized precomp holding the solid.
+      layer.precomp = { w: Math.round(w), h: Math.round(h) };
+      layer.anchor = P([sw / 2, sh / 2]);
+    }
     return layer;
   }
 

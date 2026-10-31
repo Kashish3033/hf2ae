@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// hf2ae-verify <outDir> --comp "<comp name>" --ref <video or HyperFrames .html> [--bg #808080]
+// hf2ae-verify <outDir> --comp "<comp name>" --ref <video or HyperFrames .html> [--bg #808080] [--candidate <video>]
+//   --candidate compares that video (After Effects' render) instead of the preview.
 //
 // Renders a comp of a converted timeline with the preview (src/preview_page.js),
 // renders the reference video over the same background, and compares them
@@ -15,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { CALIBRATION } from './ffreader.js';
 import { FX_CAL } from './hffx.js';
+import { FAUX_BOLD_TRACKING } from './fonts.js';
 
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PAGE_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'preview_page.js');
@@ -64,7 +66,14 @@ async function renderHtmlFrames(htmlPath, comp, fps, bg, dir) {
   }
 }
 
-export async function verify(outDir, { comp: compName, ref, bg = '#808080' }) {
+// A video's frames as candidate_###.png at the comp's fps (e.g. After
+// Effects' own render of the converted project).
+function extractFrames(file, comp, fps, dir, prefix) {
+  ffmpeg(['-i', file, '-vf', `fps=${fps},scale=${comp.w}:${comp.h},format=rgb24`, '-frames:v', String(comp.frames),
+    '-start_number', '0', path.join(dir, `${prefix}_%03d.png`)]);
+}
+
+export async function verify(outDir, { comp: compName, ref, bg = '#808080', candidate = null }) {
   outDir = path.resolve(outDir);
   const data = JSON.parse(fs.readFileSync(path.join(outDir, 'timeline.json'), 'utf8'));
   const [compId, comp] = Object.entries(data.comps).find(([, c]) => c.name === compName) || [];
@@ -89,15 +98,19 @@ export async function verify(outDir, { comp: compName, ref, bg = '#808080' }) {
     videoFrames[id] = fs.readdirSync(path.join(outDir, fdir)).filter((n) => n.endsWith('.png')).sort().map((n) => `${fdir}/${n}`);
   }
 
-  // 1. Preview frames.
+  // 1. Frames to check: a given video (AE's render), or the preview drawn
+  // from timeline.json.
+  let notes = [], fonts = [];
+  if (candidate) {
+    extractFrames(path.resolve(outDir, candidate), comp, data.fps, dir, 'preview');
+  } else {
   const server = await serve(outDir);
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: true });
-  let notes, fonts;
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.address().port}/preview.html`, { waitUntil: 'networkidle0', timeout: 60000 });
     await page.addScriptTag({ path: PAGE_SCRIPT });
-    fonts = await page.evaluate((d, cal, vf) => window.hf2aePreview.init(d, cal, vf), data, { ...CALIBRATION, ...FX_CAL }, videoFrames);
+    fonts = await page.evaluate((d, cal, vf) => window.hf2aePreview.init(d, cal, vf), data, { ...CALIBRATION, ...FX_CAL, fauxBoldTracking: FAUX_BOLD_TRACKING }, videoFrames);
     for (let f = 0; f < comp.frames; f++) {
       const b64 = await page.evaluate((id, n, color) => window.hf2aePreview.frame(id, n, color), compId, f, bg);
       fs.writeFileSync(path.join(dir, `preview_${String(f).padStart(3, '0')}.png`), Buffer.from(b64, 'base64'));
@@ -106,6 +119,7 @@ export async function verify(outDir, { comp: compName, ref, bg = '#808080' }) {
   } finally {
     await browser.close();
     server.close();
+  }
   }
 
   // 2. Reference frames over the same background: a video (webm keeps its
@@ -189,7 +203,7 @@ if (isMain) {
     console.error('usage: hf2ae-verify <outDir> --comp "<comp name>" --ref <video> [--bg #808080]');
     process.exit(1);
   }
-  verify(outDir, { comp: opt('comp'), ref: opt('ref'), bg: opt('bg') }).then((r) => {
+  verify(outDir, { comp: opt('comp'), ref: opt('ref'), bg: opt('bg'), candidate: opt('candidate') }).then((r) => {
     const fmt = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} dB` : 'identical');
     console.log(`${r.comp}: ${r.frames} frames, PSNR mean ${fmt(r.psnr.mean)}, worst ${fmt(r.psnr.min)}`);
     console.log(`worst frames: ${r.worstFrames.map((x) => `f${x.frame} ${fmt(x.psnr)}`).join(', ')}`);

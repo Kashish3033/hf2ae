@@ -28,3 +28,8 @@ export function psName({ family, weight, style }) {
   if (s === 'italic') suffix = suffix === 'Regular' ? 'Italic' : `${suffix}Italic`;
   return { name: `${family.replace(/\s+/g, '')}-${suffix}`, known: false };
 }
+
+// After Effects' Faux Bold also widens each character's advance (measured in
+// AE 26.5: +26/1000 em per character, on Anton at 96px); browsers' synthetic
+// bold doesn't. Tracking is tightened by this much to keep the line's width.
+export const FAUX_BOLD_TRACKING = 26;

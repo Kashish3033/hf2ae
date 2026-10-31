@@ -18,7 +18,7 @@ import {
 // Calibration between ffmpeg and AE effect units. Checked in After Effects
 // against the ffmpeg render; see README "Calibration".
 export const CALIBRATION = {
-  radialBlurPerZoom: 100,   // AE Radial Blur (Zoom) amount per 1.0 of zoom spread between copies
+  radialBlurPerZoom: 400,   // AE Radial Blur (Zoom) amount per 1.0 of zoom spread; measured in AE 26.5 (100-900 tried, 400 best)
   noisePerStrength: 1 / 2.55, // AE Noise % per ffmpeg noise strength
   gaussianPerSigma: 2.5,     // AE Gaussian Blur blurriness per ffmpeg gblur sigma
 };

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const RUNTIME = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ae_runtime.jsx');
 
@@ -62,8 +63,16 @@ export function writeJsx(tl, outDir) {
   fs.mkdirSync(path.join(outDir, 'footage'), { recursive: true });
   const data = prepare(tl);
   for (const fd of Object.values(data.footage)) {
-    const dest = path.join('footage', path.basename(fd.file));
-    fs.copyFileSync(fd.path, path.join(outDir, dest));
+    let dest = path.join('footage', path.basename(fd.file));
+    if (/\.webm$/i.test(fd.path)) {
+      // After Effects can't import WebM: hand it a ProRes 4444 .mov, which
+      // keeps the alpha channel.
+      dest = dest.replace(/\.webm$/i, '.mov');
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-c:v', 'libvpx-vp9', '-i', fd.path, '-c:v', 'prores_ks', '-profile:v', '4444',
+        '-pix_fmt', 'yuva444p10le', '-an', path.join(outDir, dest)]);
+    } else {
+      fs.copyFileSync(fd.path, path.join(outDir, dest));
+    }
     fd.file = dest;
     delete fd.path;
   }

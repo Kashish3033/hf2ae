@@ -5,11 +5,25 @@
 (function () {
   var D = DATA;
   var FPS = D.fps;
-  var base = File($.fileName).parent;
+  // Batch mode (src/aerun.js): a fresh project, saved as .aep, no dialogs;
+  // the report comes back as the script's result instead of a file, so AE's
+  // "Allow Scripts to Write Files" setting can stay off.
+  var BATCH = (typeof HF2AE_BATCH !== 'undefined') ? HF2AE_BATCH : null;
+  var base = BATCH && BATCH.base ? new Folder(BATCH.base) : File($.fileName).parent;
   var log = [];
   var seenFx = {};
 
   function warn(msg) { log.push(msg); }
+
+  // AE's own errors don't always turn into text with +; ask for the message.
+  function errText(e) {
+    try { return e && e.message ? String(e.message) : String(e); } catch (x) { return 'unknown error'; }
+  }
+
+  // AE's own errors don't always turn into text with +; ask for the message.
+  function errText(e) {
+    try { return e && e.message ? String(e.message) : String(e); } catch (x) { return 'unknown error'; }
+  }
 
   function sec(f) { return f / FPS; }
 
@@ -172,16 +186,20 @@
         start.expression = ctr;
         end.expression = ctr + ' + [effect("Radius")(1) * ' + p1 + ', 0]';
       } else if (mode == 'conic') {
-        start.expression = '[thisLayer.width * ' + p0 + ', thisLayer.height / 2]';
-        end.expression = '[thisLayer.width * ' + p1 + ', thisLayer.height / 2]';
+        // Polar Coordinates (Rect to Polar) wraps x round the centre
+        // counter-clockwise (measured in AE 26.5), so the ramp runs right to
+        // left, and Offset turns it back by Angle: the gradient then starts
+        // at Angle and runs clockwise, as CSS conic-gradient does.
+        start.expression = '[thisLayer.width * (1 - ' + p0 + '), thisLayer.height / 2]';
+        end.expression = '[thisLayer.width * (1 - ' + p1 + '), thisLayer.height / 2]';
         var off = parade.addProperty('ADBE Offset');
         off.name = 'Turn';
         findProp(off, ['ADBE Offset-0001', 'Shift Center To']).expression =
-          '[thisLayer.width / 2 + effect("Angle")(1) / 360 * thisLayer.width, thisLayer.height / 2]';
+          '[thisLayer.width / 2 - effect("Angle")(1) / 360 * thisLayer.width, thisLayer.height / 2]';
         var polar = parade.addProperty('ADBE Polar Coordinates');
         polar.name = 'Wrap round';
         var interp = findProp(polar, ['ADBE Polar Coordinates-0001', 'Interpolation']);
-        if (interp) interp.setValue(100);
+        if (interp) interp.setValue(1); // 0-1 (100%) in AE 26.5
         var conv = findProp(polar, ['ADBE Polar Coordinates-0002', 'Type of Conversion']);
         if (conv) conv.setValue(1);
       } else {
@@ -192,7 +210,7 @@
         start.expression = body + ctr + ' + d * L * (' + p0 + ' - 0.5)';
         end.expression = body + ctr + ' + d * L * (' + p1 + ' - 0.5)';
       }
-    } catch (e) { warn(where + ': gradient expressions: ' + e); }
+    } catch (e) { warn(where + ': gradient expressions: ' + errText(e)); }
   }
 
   function addEffect(layer, fx, where) {
@@ -201,7 +219,7 @@
     if (!spec) { warn(where + ': unknown effect type ' + fx.type); return; }
     var parade = layer.property('ADBE Effect Parade');
     var e;
-    try { e = parade.addProperty(spec.match); } catch (err) { warn(where + ': cannot add ' + spec.match + ' (' + err + ')'); return; }
+    try { e = parade.addProperty(spec.match); } catch (err) { warn(where + ': cannot add ' + spec.match + ' (' + errText(err) + ')'); return; }
     e.name = fx.name;
     if (!seenFx[fx.type]) {
       seenFx[fx.type] = true;
@@ -216,19 +234,20 @@
       if (!p) { warn(where + ': ' + fx.type + ' has no property ' + key); continue; }
       var map = null;
       if (spec.normalized && spec.normalized[key]) {
-        map = (function (pp) { return function (v) { return (pp.hasMax && pp.maxValue > 1.5) ? v * 255 : v; }; })(p);
+        // Levels takes 0-1 from scripts (a new Levels reads Input White = 1).
+        map = null;
       } else if (spec.percent && spec.percent[key]) {
         map = (function (pp) { return function (v) { return (pp.hasMax && pp.maxValue > 100) ? v * 2.55 : v; }; })(p);
       }
       setProp(p, fx.props[key], map, where + ' ' + fx.name + '.' + key);
     }
     if (fx.type == 'shiftChannels') {
-      // Take <channel> From: 2 Red, 3 Green, 4 Blue ... 11 Full Off (popup order in AE).
+      // Take <channel> From: 2 Red, 3 Green, 4 Blue ... 10 Full Off (AE 26.5: the menu runs 1-10).
       var CH = { red: 2, green: 3, blue: 4 }, keep = fx.props.keep.value;
       var takes = [['ADBE Shift Channels-0002', 'Take Red From', 'red'], ['ADBE Shift Channels-0003', 'Take Green From', 'green'], ['ADBE Shift Channels-0004', 'Take Blue From', 'blue']];
       for (var t = 0; t < takes.length; t++) {
         var tp = findProp(e, [takes[t][0], takes[t][1]]);
-        if (tp) tp.setValue(takes[t][2] == keep ? CH[keep] : 11);
+        if (tp) tp.setValue(takes[t][2] == keep ? CH[keep] : 10);
       }
     }
     if (fx.type == 'radialBlur') {
@@ -238,7 +257,7 @@
     if (spec.fixed) {
       for (var i = 0; i < spec.fixed.length; i++) {
         var fp = findProp(e, spec.fixed[i][0]);
-        if (fp) { try { fp.setValue(spec.fixed[i][1]); } catch (err2) { warn(where + ': ' + err2); } }
+        if (fp) { try { fp.setValue(spec.fixed[i][1]); } catch (err2) { warn(where + ': ' + errText(err2)); } }
       }
     }
   }
@@ -254,10 +273,12 @@
     doc.fillColor = t.fill;
     doc.applyStroke = false;
     doc.tracking = t.tracking;
-    doc.justification = t.justify == 'right' ? ParagraphJustification.RIGHT_JUSTIFY
-      : t.justify == 'center' ? ParagraphJustification.CENTER_JUSTIFY : ParagraphJustification.LEFT_JUSTIFY;
+    // A lookup, not a chained ?: — ExtendScript groups a ? b : c ? d : e as
+    // (a ? b : c) ? d : e, which turned right-aligned text into centred.
+    var JUSTIFY = { right: ParagraphJustification.RIGHT_JUSTIFY, center: ParagraphJustification.CENTER_JUSTIFY };
+    doc.justification = JUSTIFY[t.justify] || ParagraphJustification.LEFT_JUSTIFY;
     if (t.leading) { doc.autoLeading = false; doc.leading = t.leading; }
-    try { doc.fauxBold = !!t.fauxBold; doc.fauxItalic = !!t.fauxItalic; } catch (e) { warn(where + ': faux styles: ' + e); }
+    try { doc.fauxBold = !!t.fauxBold; doc.fauxItalic = !!t.fauxItalic; } catch (e) { warn(where + ': faux styles: ' + errText(e)); }
     src.setValue(doc);
     if (src.value.font != t.font) warn(where + ': font ' + t.font + ' (' + t.family + ') is not installed; AE used ' + src.value.font);
   }
@@ -275,7 +296,7 @@
         an.name = A.name;
         var props = an.property('ADBE Text Animator Properties');
         var add = function (match, value) {
-          try { props.addProperty(match).setValue(value); } catch (e) { warn(w + ': ' + match + ': ' + e); }
+          try { props.addProperty(match).setValue(value); } catch (e) { warn(w + ': ' + match + ': ' + errText(e)); }
         };
         if (A.props.opacity !== undefined) add('ADBE Text Opacity', A.props.opacity);
         if (A.props.position) add('ADBE Text Position 3D', A.props.position);
@@ -310,7 +331,7 @@
         var align = more && findProp(more, ['ADBE Text Anchor Point Align', 'Grouping Alignment']);
         if (align && A.groupingAlignment) align.setValue(A.groupingAlignment);
       } catch (e) {
-        warn(w + ': ' + e);
+        warn(w + ': ' + errText(e));
       }
     }
   }
@@ -376,7 +397,7 @@
         }
         if (p) p.name = it.name;
       } catch (e) {
-        warn(w + ': ' + e);
+        warn(w + ': ' + errText(e));
       }
     }
   }
@@ -395,7 +416,7 @@
         m.name = masks[i].name;
         m.maskMode = MaskMode.ADD;
         setProp(m.property('ADBE Mask Shape'), masks[i].path, toShape, where + ' mask');
-      } catch (e) { warn(where + ': mask: ' + e); }
+      } catch (e) { warn(where + ': mask: ' + errText(e)); }
     }
   }
 
@@ -424,7 +445,7 @@
       try {
         layer = createLayer(comp, L, items, c);
       } catch (e) {
-        warn(c.name + ' / ' + L.name + ': cannot create layer (' + e + ')');
+        warn(c.name + ' / ' + L.name + ': cannot create layer (' + errText(e) + ')');
         layer = null;
       }
       made.push(layer);
@@ -442,7 +463,7 @@
       if (!layer) continue;
       where = c.name + ' / ' + L.name;
       if (L.kind == 'text') {
-        if (L.threeDPerChar) { try { layer.threeDPerChar = true; } catch (e) { warn(where + ': per-character 3D: ' + e); } }
+        if (L.threeDPerChar) { try { layer.threeDPerChar = true; } catch (e) { warn(where + ': per-character 3D: ' + errText(e)); } }
         setText(layer, L.text, where);
         if (L.text.animators) addAnimators(layer, L.text.animators, where);
       }
@@ -460,7 +481,7 @@
         try {
           if (L.expressions.sourceText) layer.property('ADBE Text Properties').property('ADBE Text Document').expression = L.expressions.sourceText;
           if (L.expressions.opacity) tr.property('ADBE Opacity').expression = L.expressions.opacity;
-        } catch (e) { warn(where + ' expression: ' + e); }
+        } catch (e) { warn(where + ' expression: ' + errText(e)); }
       }
       if (L.comment) layer.comment = L.comment;
       if (L.guide) layer.guideLayer = true;
@@ -475,7 +496,7 @@
       try {
         if (layer.setTrackMatte) layer.setTrackMatte(matte, type); // AE 2023 and later
         else layer.trackMatteType = type;                          // the layer above is the matte
-      } catch (e) { warn(c.name + ' / ' + L.name + ': track matte: ' + e); }
+      } catch (e) { warn(c.name + ' / ' + L.name + ': track matte: ' + errText(e)); }
     }
     // A camera stands in for CSS perspective: zoom = perspective distance.
     if (c.camera) {
@@ -483,10 +504,11 @@
         var cam = comp.layers.addCamera('Camera', [c.w / 2, c.h / 2]);
         cam.property('ADBE Camera Options Group').property('ADBE Camera Zoom').setValue(c.camera.zoom);
         cam.property('ADBE Transform Group').property('ADBE Position').setValue([c.w / 2, c.h / 2, -c.camera.zoom]);
-      } catch (e) { warn(c.name + ': camera: ' + e); }
+      } catch (e) { warn(c.name + ': camera: ' + errText(e)); }
     }
   }
 
+  if (BATCH && app.project) app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
   app.beginUndoGroup('hf2ae: ' + D.name);
   var proj = app.project || app.newProject();
   var root = proj.items.addFolder(D.name);
@@ -507,7 +529,7 @@
       item.name = fd.name;
       item.parentFolder = footFolder;
       items.footage[id] = item;
-    } catch (e) { warn('cannot import ' + fd.file + ' (' + e + ')'); }
+    } catch (e) { warn('cannot import ' + fd.file + ' (' + errText(e) + ')'); }
   }
   for (id in D.comps) {
     var c = D.comps[id];
@@ -521,14 +543,18 @@
 
   items.comps[D.main].openInViewer();
 
-  var report = new File(base.fsName + '/hf2ae_report.txt');
-  report.open('w');
-  report.writeln('hf2ae report for ' + D.name + ' (' + new Date() + ')');
-  report.writeln('After Effects ' + app.version);
-  report.writeln('');
-  report.writeln(log.join('\n'));
-  report.close();
+  var text = 'hf2ae report for ' + D.name + ' (' + new Date().toString() + ')\nAfter Effects ' + app.version + '\n\n' + log.join('\n');
   var problems = 0;
-  for (var j = 0; j < log.length; j++) if (log[j].indexOf && log[j].substr(0, 7) != 'effect ') problems++;
-  alert('hf2ae: built "' + D.name + '"' + (problems ? ' with ' + problems + ' warnings.' : '.') + '\nDetails: ' + report.fsName);
+  for (var j = 0; j < log.length; j++) if (log[j].substr(0, 7) != 'effect ') problems++;
+  if (BATCH) {
+    if (BATCH.save) app.project.save(new File(BATCH.save));
+    $.global.HF2AE_RESULT = text;
+    return;
+  }
+  var where = 'not saved (allow scripts to write files in AE settings to save it)';
+  try {
+    var report = new File(base.fsName + '/hf2ae_report.txt');
+    if (report.open('w')) { report.write(text); report.close(); where = report.fsName; }
+  } catch (e) {}
+  alert('hf2ae: built "' + D.name + '"' + (problems ? ' with ' + problems + ' warnings.' : '.') + '\nReport: ' + where);
 })();

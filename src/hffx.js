@@ -23,7 +23,11 @@ import { fitVector } from './hfvector.js';
 export const FX_CAL = {
   blurLengthPerSigma: 3,    // AE Directional Blur length per Gaussian sigma (px)
   fxWhipSigmaPerPx: 0.25,   // fx.whip blur sigma per its `px`
-  opticsFovPerK: 100,       // AE Optics Compensation field of view per lensDistortion k
+  // AE Optics Compensation field of view for lensDistortion k: FOV = scale * k^power.
+  // Measured in AE 26.5 against B7's margins (22/44/69px at k 0.05/0.1125/0.2):
+  // AE's bulge grows about with FOV squared, Frameo's about with k.
+  opticsFovScale: 104,
+  opticsFovPower: 0.41,
 };
 
 const BLEND = {
@@ -203,7 +207,7 @@ export async function fxLayers(fx, { fps, frames, w, h, source, resolveMedia, co
     } else if (op === 'lensDistortion') {
       stack.push(full(w, h, {
         name: 'Lens distortion', kind: 'adjustment', color: [1, 1, 1], outFrame: frames,
-        effects: [{ type: 'opticsCompensation', name: 'Optics Compensation', props: { fov: fitCurve(series('lensDistortion', 'k', (v) => v * FX_CAL.opticsFovPerK), { tol: 0.05, fps }) } }],
+        effects: [{ type: 'opticsCompensation', name: 'Optics Compensation', props: { fov: fitCurve(series('lensDistortion', 'k', (v) => Math.sign(v) * FX_CAL.opticsFovScale * Math.abs(v) ** FX_CAL.opticsFovPower), { tol: 0.05, fps }) } }],
       }));
     } else if (op === 'grain') {
       stack.push(full(w, h, {

@@ -118,7 +118,7 @@
   function drawText(ctx, t) {
     ctx.font = fontString(t);
     // AE tracking is in 1/1000 em, between characters (not after the last one).
-    const ls = t.tracking / 1000 * t.size;
+    const ls = (t.tracking + (t.fauxBold ? CAL.fauxBoldTracking : 0)) / 1000 * t.size; // AE adds Faux Bold's spacing back
     ctx.letterSpacing = `${ls}px`;
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = rgb(t.fill);
@@ -158,7 +158,7 @@
     const A = t.animators[0];
     if (t.animators.length > 1) notes.add('preview draws the first text animator only');
     ctx.font = fontString(t);
-    const ls = t.tracking / 1000 * t.size;
+    const ls = (t.tracking + (t.fauxBold ? CAL.fauxBoldTracking : 0)) / 1000 * t.size; // AE adds Faux Bold's spacing back
     ctx.letterSpacing = `${ls}px`;
     ctx.textBaseline = 'alphabetic';
     const text = t.text;
@@ -581,9 +581,10 @@
         return c;
       }
       case 'opticsCompensation': {
-        // Barrel distortion as hf2ae maps lensDistortion: k = FOV / opticsFovPerK,
+        // Barrel distortion as hf2ae maps lensDistortion: k from FOV = scale * k^power,
         // a source radius r * (1 + k r^2), r normalised to the half diagonal.
-        const k = v('fov') / CAL.opticsFovPerK;
+        const fov = v('fov');
+        const k = Math.sign(fov) * (Math.abs(fov) / CAL.opticsFovScale) ** (1 / CAL.opticsFovPower);
         if (Math.abs(k) < 1e-4) return c;
         const W = c.width, H = c.height, R = Math.hypot(W, H) / 2;
         const src = c.getContext('2d').getImageData(0, 0, W, H).data;

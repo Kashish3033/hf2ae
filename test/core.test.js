@@ -111,3 +111,20 @@ test('graph: overlay enable windows become in/out points', () => {
   const out = r.read("[0:v]loop=loop=-1:size=1,trim=end_frame=20[x];[1:v]loop=loop=-1:size=1[y];[x][y]overlay=enable='eq(n,5)+gte(n,11)'[v]", 'v');
   assert.deepEqual(out.layers.map((l) => [l.name, l.inFrame, l.outFrame]), [['a', 0, 20], ['b', 5, 6], ['b', 11, 20]]);
 });
+
+test('AE script has no unbracketed chained ?: (ExtendScript groups them left to right)', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/ae_runtime.jsx', import.meta.url), 'utf8');
+  // a ? b : c ? d ... with the second ? outside brackets
+  const bad = src.split('\n').filter((line) => {
+    let depth = 0, sawColon = false, q = 0;
+    for (const ch of line.replace(/\/\/.*$/, '').replace(/'[^']*'|"[^"]*"/g, '')) {
+      if (ch === '(') depth++;
+      if (ch === ')') depth--;
+      if (depth === 0 && ch === '?') { q++; if (sawColon) return true; }
+      if (depth === 0 && ch === ':' && q) sawColon = true;
+    }
+    return false;
+  });
+  assert.deepEqual(bad, []);
+});

@@ -81,7 +81,63 @@ OTF/TTF:
 
 If a font is missing, the report says which one AE used instead.
 
-## Calibration (to do once After Effects is installed)
+## Checked in After Effects
+
+`src/aerun.js` builds a converted shot in real After Effects (26.5) and renders
+it with `aerender`; `verify.js --candidate ae_render.mov` then compares AE's
+render with Frameo's.
+
+```bash
+node src/aerun.js out/punch_demo
+```
+
+```bash
+node src/verify.js out/punch_demo --comp "Punch Demo – Einstein vs Bohr" --ref reference_444.mp4 --candidate ae_render.mov
+```
+
+After Effects must be open, with Settings → Scripting & Expressions → "Allow
+Scripts to Write Files and Access Network" on. Fonts the shots use must be
+installed (TeX Gyre Heros, Anton, Instrument Serif).
+
+What running in AE found and fixed:
+- AE can't import WebM: WebM footage is handed over as ProRes 4444 .mov (alpha kept).
+- Text tracking must be a whole number in AE: tracking is rounded (under 0.1px per letter).
+- ExtendScript groups `a ? b : c ? d : e` left to right, which centred right-aligned
+  text; the script uses lookups, and a test forbids unbracketed chained `?:`.
+- Levels takes 0–1 values from scripts (a new Levels reads Input White = 1).
+- Drop Shadow opacity takes 0–255 (as mapped).
+- Shift Channels' "Full Off" is 10 (the menu runs 1–10).
+- Radial Blur (Zoom) amount: 400 per 1.0 of zoom spread (100–900 tried in AE).
+- Optics Compensation isn't linear: field of view = 104 · k^0.41 matches Frameo's
+  lens margins (22/44/69px at k 0.05/0.1125/0.2).
+- AE's errors and dates don't join into text with `+`; the script converts them first.
+- Faux Bold adds 26/1000 em of advance per letter in AE; tracking takes it off.
+- Polar Coordinates only fills the circle inside its layer and wraps counter-clockwise:
+  a conic gradient is a diagonal-sized solid (ramp right to left, turned by Offset)
+  inside a box-sized precomp that crops it.
+
+AE render vs Frameo render, whole frame, mean PSNR (AE 26.5, all 15 shots built
+with no warnings):
+
+| shot | AE | browser preview | note |
+|---|---|---|---|
+| punch_demo | flashes 34–36, push 27.4 | same | |
+| a1 ICONIC flip | 22.2 | | AE text engine vs Chrome glyphs |
+| a2 1965 scramble | 22.0 | | Frameo's Linux monospace font |
+| a3 per-word reveal | 26.2 | 43.1 | AE text engine vs Chrome glyphs |
+| a4 gradient sweep | 19.0 | 19.2 | conversion gap, not AE |
+| a5 SOLVAY matte | 47.1 | | |
+| a6 shape booleans | 30.1 | | |
+| a7 radial/conic | 30.1 (each gradient 37–41) | 29.7 | |
+| a8 paintPath | 27.7 | | |
+| a10 eight eases | 25.8 | 26.3 | |
+| w1 whip flash | 37.7 | | |
+| w2 DOM whip | 38.6 | | |
+| x1 directional whip | 36.8 | | |
+| x2 cut distort | 37.2 | | |
+| e1 expr | 15.6 | 15.6 | Frameo's random/noise seeds unknown |
+
+## Calibration (still to check)
 
 Some ffmpeg units have no exact AE equivalent. The current values are best
 guesses, kept in `CALIBRATION` in `src/ffreader.js`:
@@ -100,7 +156,7 @@ Also to verify in AE:
 - Polar Coordinates starting the conic at 12 o'clock and going clockwise, like CSS `conic-gradient`
 - the sign of shape-group Skew against CSS `skewX`, and CC Light Sweep's direction and width against the band
 - colour keyframes taking a single ease (hf2ae assumes so)
-- Directional Blur length per Gaussian sigma (`blurLengthPerSigma`), the Optics Compensation field of view per `lensDistortion` k (`opticsFovPerK`), and the Shift Channels popup values
+- Directional Blur length per Gaussian sigma (`blurLengthPerSigma`)
 - turning on AE motion blur for whips to match Frameo's render motion blur
 
 - the units Levels and Drop Shadow take from scripts (the report lists their ranges)

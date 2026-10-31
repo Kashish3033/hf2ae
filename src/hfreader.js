@@ -10,7 +10,7 @@ import puppeteer from 'puppeteer-core';
 import { pathToFileURL } from 'node:url';
 import { fitCurve } from './fit.js';
 import { P, makeLayer, newId, affineProp } from './timeline.js';
-import { psName } from './fonts.js';
+import { psName, FAUX_BOLD_TRACKING } from './fonts.js';
 import { installHfPlusStub } from './hfplus_stub.js';
 import { boxLayer, pathLayer, gradientEffect, sweepEffect, transformProps } from './hfvector.js';
 import { applyWhip, fxLayers } from './hffx.js';
@@ -367,7 +367,8 @@ function textLayers(item, fps, notes, animate) {
     fauxItalic: !!item.font.fauxItalic,
     size: item.font.size,
     fill: rgb,
-    tracking: round2(ls / item.font.size * 1000),
+    // AE only takes whole numbers; Faux Bold adds its own spacing, taken back here.
+    tracking: Math.round((ls / item.font.size) * 1000) - (item.font.fauxBold ? FAUX_BOLD_TRACKING : 0),
     justify,
     leading: item.text.includes('\n') ? item.lineHeight : null,
   };
@@ -591,11 +592,23 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference, res
         const g = gradOf(it.tag), sw = sweepOf(it.tag);
         const [, , bw, bh] = it.samples.rect[0];
         if (it.hasImage && !g && !sw) notes.push(`${it.id || 'box'}: CSS background-image isn't converted (only hfPlus.gradient)`);
-        layers.push(boxLayer(it, {
+        const bl = boxLayer(it, {
           fps, notes,
           gradient: g ? gradientEffect(g, bw, bh, fps) : null,
           sweep: sw ? sweepEffect(sw, bw, bh, fps) : null,
-        }));
+        });
+        if (bl.precomp) {
+          // A box-sized precomp crops the larger solid after its effects.
+          const { w: pw, h: ph } = bl.precomp;
+          delete bl.precomp;
+          const inner = { ...bl, name: `${bl.name} – gradient`, position: P([pw / 2, ph / 2]), scale: P([100, 100]), rotation: P(0), opacity: P(100), inFrame: 0, outFrame: m.frames };
+          const id = newId('comp');
+          comps[id] = { id, name: bl.name, w: pw, h: ph, frames: m.frames, layers: [inner] };
+          layers.push(makeLayer({
+            name: bl.name, kind: 'comp', source: id, w: pw, h: ph, tag: bl.tag, inFrame: bl.inFrame, outFrame: bl.outFrame,
+            anchor: P([pw / 2, ph / 2]), position: bl.position, scale: bl.scale, rotation: bl.rotation, opacity: bl.opacity,
+          }));
+        } else layers.push(bl);
         continue;
       }
       if (it.kind === 'path') {
