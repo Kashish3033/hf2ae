@@ -599,14 +599,14 @@ export async function readHyperframes(htmlPath, { fps = 25, name, reference, res
         });
         if (bl.precomp) {
           // A box-sized precomp crops the larger solid after its effects.
-          const { w: pw, h: ph } = bl.precomp;
-          delete bl.precomp;
-          const inner = { ...bl, name: `${bl.name} – gradient`, position: P([pw / 2, ph / 2]), scale: P([100, 100]), rotation: P(0), opacity: P(100), inFrame: 0, outFrame: m.frames };
+          const { precomp: { w: pw, h: ph, center, effects, masks }, ...solid } = bl;
+          const inner = { ...solid, name: `${bl.name} – gradient`, position: center, scale: P([100, 100]), rotation: P(0), opacity: P(100), inFrame: 0, outFrame: m.frames };
           const id = newId('comp');
           comps[id] = { id, name: bl.name, w: pw, h: ph, frames: m.frames, layers: [inner] };
           layers.push(makeLayer({
             name: bl.name, kind: 'comp', source: id, w: pw, h: ph, tag: bl.tag, inFrame: bl.inFrame, outFrame: bl.outFrame,
             anchor: P([pw / 2, ph / 2]), position: bl.position, scale: bl.scale, rotation: bl.rotation, opacity: bl.opacity,
+            effects, ...(masks ? { masks } : {}),
           }));
         } else layers.push(bl);
         continue;

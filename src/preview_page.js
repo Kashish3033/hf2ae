@@ -442,6 +442,7 @@
       ctx.drawImage(img, 0, 0);
     } else if (layer.kind === 'comp') {
       ctx.drawImage(renderComp(layer.source, f - layer.startFrame), 0, 0);
+      for (const fx of layer.effects) if (fx.type === 'lightSweep') paintSweep(ctx, fx, layer.w, layer.h, f);
     }
     if (layer.masks && layer.masks.length) {
       ctx.setTransform(worldMatrix(comp, layer, f));

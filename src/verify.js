@@ -17,6 +17,7 @@ import puppeteer from 'puppeteer-core';
 import { CALIBRATION } from './ffreader.js';
 import { FX_CAL } from './hffx.js';
 import { FAUX_BOLD_TRACKING } from './fonts.js';
+import { installHfPlusStub } from './hfplus_stub.js';
 
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PAGE_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'preview_page.js');
@@ -48,6 +49,7 @@ async function renderHtmlFrames(htmlPath, comp, fps, bg, dir) {
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: comp.w, height: comp.h });
+    await page.evaluateOnNewDocument(installHfPlusStub); // hfPlus only exists in Frameo's render service
     await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'networkidle0', timeout: 60000 });
     await page.evaluate((color) => document.fonts.ready.then(() => {
       document.documentElement.style.background = color;

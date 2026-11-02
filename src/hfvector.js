@@ -9,7 +9,7 @@
 //   - hfPlus.sweep           -> CC Light Sweep, centre keyed
 
 import { fitCurve } from './fit.js';
-import { P, makeLayer, affineProp } from './timeline.js';
+import { P, makeLayer } from './timeline.js';
 
 const round2 = (v) => Math.round(v * 100) / 100;
 
@@ -158,26 +158,25 @@ export function boxLayer(item, { fps, gradient, sweep, notes }) {
 
   if (gradient) {
     if (sizeChanges) notes.push(`${name}: gradient box changes size; the solid keeps its first size`);
-    // Polar Coordinates only fills the circle inside its layer, so a conic
-    // gradient is drawn on a square as wide as the box's diagonal, inside a
-    // precomp the size of the box (AE applies masks before effects, so a
-    // mask can't crop it).
+    // Polar Coordinates spins round its layer's middle and only fills the circle
+    // inside it, so a conic gradient is a solid big enough to reach every corner
+    // from any centre in the box, placed on that centre, inside a box-sized
+    // precomp. Masks and sweeps go on the precomp's layer: AE applies masks
+    // before effects, so Polar Coordinates would bend them.
     const conic = gradient.props.mode.value === 'conic';
-    const sw = conic ? Math.ceil(Math.hypot(w, h)) : Math.round(w), sh = conic ? sw : Math.round(h);
-    const dx = (sw - w) / 2, dy = (sh - h) / 2;
-    if (conic) gradient.props.center = affineProp(gradient.props.center, 1, [dx, dy]);
+    const sw = conic ? Math.ceil(2 * Math.hypot(w, h)) : Math.round(w), sh = conic ? sw : Math.round(h);
+    const center = gradient.props.center;
+    if (conic) gradient.props.center = P([sw / 2, sh / 2]);
+    const over = sweep ? [sweep] : [];
+    const masks = mask && !mask.unsupported ? [shiftMask(mask, w / 2, h / 2)] : null;
     const layer = makeLayer({
       name, kind: 'solid', w: sw, h: sh, color: [1, 1, 1], tag: item.tag,
       inFrame: item.inFrame, outFrame: item.outFrame,
       anchor: P([sw / 2, sh / 2]), position, scale, rotation, opacity,
-      effects: [gradient, ...(sweep ? [sweep] : [])],
+      effects: conic ? [gradient] : [gradient, ...over],
     });
-    if (mask && !mask.unsupported) layer.masks = [shiftMask(mask, sw / 2, sh / 2)];
-    if (conic) {
-      // The caller turns this into a box-sized precomp holding the solid.
-      layer.precomp = { w: Math.round(w), h: Math.round(h) };
-      layer.anchor = P([sw / 2, sh / 2]);
-    }
+    if (conic) layer.precomp = { w: Math.round(w), h: Math.round(h), center, effects: over, masks };
+    else if (masks) layer.masks = masks;
     return layer;
   }
 

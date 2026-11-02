@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { reportWarnings } from '../src/aerun.js';
 import assert from 'node:assert/strict';
 import { evalExpr } from '../src/ffexpr.js';
 import { parseFiltergraph } from '../src/filtergraph.js';
@@ -115,10 +116,10 @@ test('graph: overlay enable windows become in/out points', () => {
 test('AE script has no unbracketed chained ?: (ExtendScript groups them left to right)', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../src/ae_runtime.jsx', import.meta.url), 'utf8');
-  // a ? b : c ? d ... with the second ? outside brackets
-  const bad = src.split('\n').filter((line) => {
+  // a ? b : c ? d ... with the second ? outside brackets; statements can span lines
+  const chained = (code) => code.replace(/\/\/.*$/gm, '').replace(/'[^']*'|"[^"]*"/g, '').split(/[;{}]/).filter((stmt) => {
     let depth = 0, sawColon = false, q = 0;
-    for (const ch of line.replace(/\/\/.*$/, '').replace(/'[^']*'|"[^"]*"/g, '')) {
+    for (const ch of stmt) {
       if (ch === '(') depth++;
       if (ch === ')') depth--;
       if (depth === 0 && ch === '?') { q++; if (sawColon) return true; }
@@ -126,5 +127,11 @@ test('AE script has no unbracketed chained ?: (ExtendScript groups them left to 
     }
     return false;
   });
-  assert.deepEqual(bad, []);
+  assert.equal(chained("x = a == 'r' ? R\n  : a == 'c' ? C : L;").length, 1); // the bug that started this
+  assert.deepEqual(chained(src), []);
+});
+
+test('AE report warnings: every line that is not header or listing, with any line ending', () => {
+  const report = 'hf2ae report for x (today)\rAfter Effects 26.5x89\r\reffect ADBE Ramp:\r  Start of Ramp\rmissing footage footage/a.mov\rcomp / layer: mask: oops\r';
+  assert.deepEqual(reportWarnings(report), ['missing footage footage/a.mov', 'comp / layer: mask: oops']);
 });

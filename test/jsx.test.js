@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { writeJsx } from '../src/jsxwriter.js';
 import { P, makeLayer } from '../src/timeline.js';
 import { mockAE } from './mock_ae.js';
+import { reportWarnings } from '../src/aerun.js';
 
 test('generated jsx runs and builds the comps', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hf2ae-'));
@@ -73,7 +74,7 @@ test('punch demo converts and its jsx runs cleanly', { skip: !hasMedia && 'run e
   // One precomp per title line groups the text with its shadow copies.
   assert.deepEqual(names.sort(), ['EINSTEIN', 'Photo + Punch Title', 'Punch Demo – Einstein vs Bohr', 'Punch Title', 'Shot 1 – Einstein push', 'Shot 2 – Money', 'VS. BOHR'].sort());
   const report = Object.values(files)[0].join('\n');
-  const warnings = report.split('\n').filter((l) => /: /.test(l) && !/^(effect |  |hf2ae report|After Effects)/.test(l));
+  const warnings = reportWarnings(report);
   assert.deepEqual(warnings, []);
 });
 
@@ -100,7 +101,7 @@ test('hf motion renders map to text animators, a camera and a track matte', { sk
     const { ctx, items, files } = mockAE(dir);
     vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
     const report = Object.values(files)[0].join('\n');
-    const warnings = report.split('\n').filter((l) => /: /.test(l) && !/^(effect |  |hf2ae report|After Effects)/.test(l));
+    const warnings = reportWarnings(report);
     assert.deepEqual(warnings, [], n);
     built[n] = items.find((c) => c.name === n && c.layerList.some((l) => l.kind !== 'av' || l.name !== n)) || items[0];
   }
@@ -126,7 +127,7 @@ test('hf vector renders map to shape layers, merge paths, gradients and masks', 
     const { ctx, files } = mockAE(dir);
     vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
     const report = Object.values(files)[0].join('\n');
-    const warnings = report.split('\n').filter((l) => /: /.test(l) && !/^(effect |  |hf2ae report|After Effects)/.test(l));
+    const warnings = reportWarnings(report);
     assert.deepEqual(warnings, [], n);
     out[n] = Object.values(data.comps).flatMap((c) => c.layers);
   }
@@ -162,7 +163,7 @@ test('whip and fx map to eased slides, a blur layer and an RGB-split rig', { ski
     const { ctx, files } = mockAE(dir);
     vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
     const report = Object.values(files)[0].join('\n');
-    const warnings = report.split('\n').filter((l) => /: /.test(l) && !/^(effect |  |hf2ae report|After Effects)/.test(l));
+    const warnings = reportWarnings(report);
     assert.deepEqual(warnings, [], n);
     out[n] = Object.values(JSON.parse(fs.readFileSync(path.join(dir, 'timeline.json'), 'utf8')).comps).flatMap((c) => c.layers);
   }
@@ -177,4 +178,22 @@ test('whip and fx map to eased slides, a blur layer and an RGB-split rig', { ski
   assert.equal(out.x2_cutdistort.find((l) => l.name === 'Blend top').blend, 'dissolve');
   assert.deepEqual(out.x2_cutdistort.filter((l) => l.name.startsWith('RGB split')).map((l) => l.effects[0].props.keep.value).sort(), ['blue', 'green', 'red']);
   assert.equal(out.x2_cutdistort.find((l) => l.name === 'Lens distortion').effects[0].type, 'opticsCompensation');
+});
+
+test('a conic gradient keeps its centre, and its mask and sweep stay on the box', { skip: !hasMotion && 'run examples/hf_motion/fetch.sh first' }, async () => {
+  const { convert } = await import('../src/cli.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hf2ae-conic-'));
+  const shot = path.join(MOTION, 'a7b_conic_edge.json');
+  const { jsxPath } = await convert(shot, dir);
+  const data = JSON.parse(fs.readFileSync(path.join(dir, 'timeline.json'), 'utf8'));
+  const { ctx, files } = mockAE(dir);
+  vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
+  assert.deepEqual(reportWarnings(Object.values(files)[0].join('\n')), []);
+  const layers = Object.values(data.comps).flatMap((c) => c.layers);
+  const outer = layers.find((l) => l.name === 'con'), inner = layers.find((l) => l.name === 'con – gradient');
+  assert.deepEqual(inner.position.value, [126, 84]); // 30% 20% of 420x420
+  assert.deepEqual(inner.effects.map((e) => e.type), ['gradient']);
+  assert.deepEqual(outer.effects.map((e) => e.type), ['lightSweep']);
+  assert.equal(outer.masks.length, 1);
+  assert.equal(inner.masks, undefined);
 });

@@ -5,20 +5,14 @@
 (function () {
   var D = DATA;
   var FPS = D.fps;
-  // Batch mode (src/aerun.js): a fresh project, saved as .aep, no dialogs;
-  // the report comes back as the script's result instead of a file, so AE's
-  // "Allow Scripts to Write Files" setting can stay off.
+  // Batch mode (src/aerun.js): a fresh project, saved as .aep; the report goes
+  // back through $.global for aerun's wrapper to write to a file.
   var BATCH = (typeof HF2AE_BATCH !== 'undefined') ? HF2AE_BATCH : null;
   var base = BATCH && BATCH.base ? new Folder(BATCH.base) : File($.fileName).parent;
   var log = [];
   var seenFx = {};
 
   function warn(msg) { log.push(msg); }
-
-  // AE's own errors don't always turn into text with +; ask for the message.
-  function errText(e) {
-    try { return e && e.message ? String(e.message) : String(e); } catch (x) { return 'unknown error'; }
-  }
 
   // AE's own errors don't always turn into text with +; ask for the message.
   function errText(e) {
@@ -34,8 +28,7 @@
       inputWhite: ['ADBE Easy Levels Input White', 'Input White'],
       gamma: ['ADBE Easy Levels Gamma', 'Gamma'],
       outputBlack: ['ADBE Easy Levels Output Black', 'Output Black'],
-      outputWhite: ['ADBE Easy Levels Output White', 'Output White'] },
-      normalized: { inputBlack: 1, inputWhite: 1, outputBlack: 1, outputWhite: 1 } },
+      outputWhite: ['ADBE Easy Levels Output White', 'Output White'] } }, // scripts set these as 0-1
     tint: { match: 'ADBE Tint', props: { amount: ['ADBE Tint-0003', 'Amount to Tint'] } },
     hueSaturation: { match: 'ADBE HUE SATURATION', props: { saturation: ['ADBE HUE SATURATION-0005', 'Master Saturation'] } },
     noise: { match: 'ADBE Noise', props: { amount: ['ADBE Noise-0001', 'Amount of Noise'] },
@@ -233,10 +226,7 @@
       var p = names ? findProp(e, names) : null;
       if (!p) { warn(where + ': ' + fx.type + ' has no property ' + key); continue; }
       var map = null;
-      if (spec.normalized && spec.normalized[key]) {
-        // Levels takes 0-1 from scripts (a new Levels reads Input White = 1).
-        map = null;
-      } else if (spec.percent && spec.percent[key]) {
+      if (spec.percent && spec.percent[key]) {
         map = (function (pp) { return function (v) { return (pp.hasMax && pp.maxValue > 100) ? v * 2.55 : v; }; })(p);
       }
       setProp(p, fx.props[key], map, where + ' ' + fx.name + '.' + key);
@@ -508,7 +498,12 @@
     }
   }
 
-  if (BATCH && app.project) app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
+  // AE asks about unsaved work; on Cancel the project stays open, and building
+  // into it and saving it as project.aep would be worse than stopping.
+  if (BATCH && app.project && !app.project.close(CloseOptions.PROMPT_TO_SAVE_CHANGES)) {
+    $.global.HF2AE_RESULT = 'SCRIPT ERROR: the open project was not closed (Cancel pressed)';
+    return;
+  }
   app.beginUndoGroup('hf2ae: ' + D.name);
   var proj = app.project || app.newProject();
   var root = proj.items.addFolder(D.name);

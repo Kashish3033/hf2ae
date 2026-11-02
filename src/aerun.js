@@ -16,6 +16,11 @@ const AE_APP = path.basename(AE_DIR); // "Adobe After Effects 2026"
 
 const jsString = (s) => JSON.stringify(s); // a JS string literal ExtendScript also reads
 
+// The lines of an AE report that are warnings, not its header or effect listing.
+export function reportWarnings(report) {
+  return report.split(/\r\n?|\n/).filter((l) => !/^(effect |  |hf2ae report|After Effects|$)/.test(l));
+}
+
 export function runInAE(outDir) {
   outDir = path.resolve(outDir);
   const jsx = fs.readdirSync(outDir).find((f) => f.endsWith('.jsx') && f !== 'aerun_wrapper.jsx');
@@ -30,14 +35,14 @@ export function runInAE(outDir) {
     // AE's AppleScript bridge doesn't return script results, so the report
     // goes to a file.
     `var hf2aeOut = new File(${jsString(path.join(outDir, 'ae_report.txt'))});`,
-    `hf2aeOut.encoding = 'UTF-8'; hf2aeOut.open('w'); hf2aeOut.write($.global.HF2AE_RESULT); hf2aeOut.close();`,
+    `hf2aeOut.encoding = 'UTF-8'; hf2aeOut.lineFeed = 'Unix'; hf2aeOut.open('w'); hf2aeOut.write($.global.HF2AE_RESULT); hf2aeOut.close();`,
   ].join('\n'));
   const reportFile = path.join(outDir, 'ae_report.txt');
   fs.rmSync(reportFile, { force: true });
   execFileSync('osascript', ['-e', `tell application ${jsString(AE_APP)} to DoScriptFile ${jsString(wrapper)}`], {
     encoding: 'utf8', timeout: 10 * 60 * 1000,
   });
-  if (!fs.existsSync(reportFile)) throw new Error('AE ran nothing (no report); is After Effects open?');
+  if (!fs.existsSync(reportFile)) throw new Error('AE wrote no report; is After Effects open, with "Allow Scripts to Write Files and Access Network" on?');
   const result = fs.readFileSync(reportFile, 'utf8').trim();
   if (result.startsWith('SCRIPT ERROR')) throw new Error(result);
   if (!fs.existsSync(aep)) throw new Error(`AE didn't save ${aep}; report: ${result.slice(0, 300)}`);
@@ -66,7 +71,7 @@ if (isMain) {
   }
   try {
     const { aep, report } = runInAE(outDir);
-    const warnings = report.split('\n').filter((l) => /: /.test(l) && !/^(effect |  |hf2ae report|After Effects)/.test(l));
+    const warnings = reportWarnings(report);
     console.log(`built ${aep}`);
     console.log(warnings.length ? `warnings:\n  ${warnings.join('\n  ')}` : 'no warnings');
     if (!rest.includes('--no-render')) console.log(`rendered ${renderInAE(outDir)}`);

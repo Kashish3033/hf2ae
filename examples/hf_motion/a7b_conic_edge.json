@@ -1,0 +1,8 @@
+{
+  "name": "a7b_conic_edge",
+  "fps": 24,
+  "source": "Written for hf2ae: an off-centre conic gradient with a clip-path and a sweep. No Frameo render; compare with the HTML.",
+  "inputs": [ { "file": "src/a7_gradients.mp4", "name": "a7b_conic_edge", "hyperframes": "src/a7b_conic_edge.html" } ],
+  "graph": "[0:v]null[v]",
+  "output": "v"
+}

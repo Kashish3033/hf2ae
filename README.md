@@ -95,8 +95,9 @@ node src/aerun.js out/punch_demo
 node src/verify.js out/punch_demo --comp "Punch Demo – Einstein vs Bohr" --ref reference_444.mp4 --candidate ae_render.mov
 ```
 
-After Effects must be open, with Settings → Scripting & Expressions → "Allow
-Scripts to Write Files and Access Network" on. Fonts the shots use must be
+`aerun.js` closes the project open in AE first: AE asks about unsaved work, and
+Cancel stops the run. After Effects must be open, with Settings → Scripting &
+Expressions → "Allow Scripts to Write Files and Access Network" on. Fonts the shots use must be
 installed (TeX Gyre Heros, Anton, Instrument Serif).
 
 What running in AE found and fixed:
@@ -112,30 +113,35 @@ What running in AE found and fixed:
   lens margins (22/44/69px at k 0.05/0.1125/0.2).
 - AE's errors and dates don't join into text with `+`; the script converts them first.
 - Faux Bold adds 26/1000 em of advance per letter in AE; tracking takes it off.
-- Polar Coordinates only fills the circle inside its layer and wraps counter-clockwise:
-  a conic gradient is a diagonal-sized solid (ramp right to left, turned by Offset)
-  inside a box-sized precomp that crops it.
+- Polar Coordinates spins round the layer's middle, only fills the circle inside it and
+  wraps counter-clockwise: a conic gradient is a solid twice the box's diagonal (ramp
+  right to left, turned by Offset), placed on the gradient's centre inside a box-sized
+  precomp. Masks and sweeps go on the precomp's layer, because AE applies masks before
+  effects and Polar Coordinates would bend them.
+- AE writes `\r` line endings to text files by default; reports now use `\n`, and
+  `reportWarnings` reads either.
 
-AE render vs Frameo render, whole frame, mean PSNR (AE 26.5, all 15 shots built
-with no warnings):
+AE render and browser preview vs the reference, whole frame, PSNR in dB (AE 26.5,
+all 16 shots built with no warnings):
 
-| shot | AE | browser preview | note |
-|---|---|---|---|
-| punch_demo | flashes 34–36, push 27.4 | same | |
-| a1 ICONIC flip | 22.2 | | AE text engine vs Chrome glyphs |
-| a2 1965 scramble | 22.0 | | Frameo's Linux monospace font |
-| a3 per-word reveal | 26.2 | 43.1 | AE text engine vs Chrome glyphs |
-| a4 gradient sweep | 19.0 | 19.2 | conversion gap, not AE |
-| a5 SOLVAY matte | 47.1 | | |
-| a6 shape booleans | 30.1 | | |
-| a7 radial/conic | 30.1 (each gradient 37–41) | 29.7 | |
-| a8 paintPath | 27.7 | | |
-| a10 eight eases | 25.8 | 26.3 | |
-| w1 whip flash | 37.7 | | |
-| w2 DOM whip | 38.6 | | |
-| x1 directional whip | 36.8 | | |
-| x2 cut distort | 37.2 | | |
-| e1 expr | 15.6 | 15.6 | Frameo's random/noise seeds unknown |
+| shot | AE mean | AE worst | preview mean | preview worst | note |
+|---|---|---|---|---|---|
+| punch_demo | 28.6 | 21.5 | 29.4 | 23.8 | |
+| a1 ICONIC flip | 26.7 | 24.3 | 38.6 | 34.0 | AE draws letters differently from Chrome |
+| a2 1965 scramble | 24.6 | 17.3 | 40.7 | 16.8 | same; the worst frames are low in the preview too |
+| a3 per-word reveal | 26.2 | 23.4 | 43.1 | 42.3 | same |
+| a4 gradient sweep | 25.6 | 23.6 | 30.6 | 30.2 | |
+| a5 SOLVAY matte | 47.1 | 45.4 | 46.2 | 44.3 | |
+| a6 shape booleans | 30.1 | 30.1 | 33.4 | 33.3 | |
+| a7 radial/conic | 30.1 | 30.0 | 29.7 | 29.7 | |
+| a7b off-centre conic | 32.3 | 24.0 | 71.1 | 55.9 | reference is the HTML with the hfPlus stand-in; CC Light Sweep's band is wider and brighter than the stand-in's |
+| a8 paintPath | 27.7 | 25.4 | 27.6 | 26.4 | |
+| a10 eight eases | 25.8 | 25.7 | 26.3 | 26.3 | |
+| w1 whip flash | 37.7 | 27.9 | 34.4 | 20.0 | |
+| w2 DOM whip | 38.6 | 27.9 | 39.9 | 22.2 | |
+| x1 directional whip | 36.8 | 31.8 | 36.3 | 21.3 | |
+| x2 cut distort | 37.2 | 7.3 | 37.5 | 7.3 | the worst frames are the same in both |
+| e1 expr | 15.6 | 15.3 | 15.6 | 15.2 | Frameo's random/noise seeds unknown |
 
 ## Calibration (still to check)
 
