@@ -18,7 +18,7 @@ const jsString = (s) => JSON.stringify(s); // a JS string literal ExtendScript a
 
 // The lines of an AE report that are warnings, not its header or effect listing.
 export function reportWarnings(report) {
-  return report.split(/\r\n?|\n/).filter((l) => !/^(effect |  |hf2ae report|After Effects|$)/.test(l));
+  return report.split(/\r\n?|\n/).filter((l) => !/^(effect [^/]*:|  .*|hf2ae report for .*|After Effects \S+|)$/.test(l));
 }
 
 export function runInAE(outDir) {

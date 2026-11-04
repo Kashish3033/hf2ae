@@ -83,13 +83,16 @@ export function mockAE(baseDir) {
     if (!(this instanceof File)) return new File(p);
     this.fsName = p; this.exists = fs.existsSync(p); this.parent = { fsName: baseDir };
   }
-  File.prototype.open = function () { files[this.fsName] = []; };
+  File.prototype.open = function () { files[this.fsName] = []; return true; };
   File.prototype.writeln = function (s) { files[this.fsName].push(s); };
+  File.prototype.write = File.prototype.writeln;
   File.prototype.close = function () {};
   const ctx = {
     app: { project, beginUndoGroup() {}, endUndoGroup() {}, version: 'mock' },
     File, ImportOptions: function (f) { this.file = f; },
-    $: { fileName: path.join(baseDir, 'x.jsx') },
+    $: { fileName: path.join(baseDir, 'x.jsx'), global: {} },
+    Folder: function (p) { this.fsName = p; },
+    CloseOptions: { PROMPT_TO_SAVE_CHANGES: 2 },
     alert: (m) => { ctx.alerted = m; },
     KeyframeEase: function (s, i) { this.speed = s; this.influence = i; },
     BlendingMode: { NORMAL: 1, SCREEN: 2, MULTIPLY: 3, OVERLAY: 4, ADD: 5, LIGHTEN: 6, DARKEN: 7, DIFFERENCE: 8, SOFT_LIGHT: 9, HARD_LIGHT: 10, LUMINOSITY: 11, COLOR: 12, DISSOLVE: 13, SUBTRACT: 14, DIVIDE: 15, LIGHTER_COLOR: 16, DARKER_COLOR: 17, COLOR_DODGE: 18, COLOR_BURN: 19, EXCLUSION: 20, HUE: 21, SATURATION: 22 },

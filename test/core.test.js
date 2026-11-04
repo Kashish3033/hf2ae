@@ -134,4 +134,6 @@ test('AE script has no unbracketed chained ?: (ExtendScript groups them left to 
 test('AE report warnings: every line that is not header or listing, with any line ending', () => {
   const report = 'hf2ae report for x (today)\rAfter Effects 26.5x89\r\reffect ADBE Ramp:\r  Start of Ramp\rmissing footage footage/a.mov\rcomp / layer: mask: oops\r';
   assert.deepEqual(reportWarnings(report), ['missing footage footage/a.mov', 'comp / layer: mask: oops']);
+  // a comp's name can look like the lines that get skipped
+  assert.deepEqual(reportWarnings('effect demo / title: mask: oops\rAfter Effects promo / a: bad'), ['effect demo / title: mask: oops', 'After Effects promo / a: bad']);
 });

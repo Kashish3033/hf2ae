@@ -540,7 +540,7 @@
 
   var text = 'hf2ae report for ' + D.name + ' (' + new Date().toString() + ')\nAfter Effects ' + app.version + '\n\n' + log.join('\n');
   var problems = 0;
-  for (var j = 0; j < log.length; j++) if (log[j].substr(0, 7) != 'effect ') problems++;
+  for (var j = 0; j < log.length; j++) if (!/^effect [^\/\n]*:(\n|$)/.test(log[j])) problems++; // a comp's name can start with "effect "
   if (BATCH) {
     if (BATCH.save) app.project.save(new File(BATCH.save));
     $.global.HF2AE_RESULT = text;
@@ -549,6 +549,7 @@
   var where = 'not saved (allow scripts to write files in AE settings to save it)';
   try {
     var report = new File(base.fsName + '/hf2ae_report.txt');
+    report.lineFeed = 'Unix';
     if (report.open('w')) { report.write(text); report.close(); where = report.fsName; }
   } catch (e) {}
   alert('hf2ae: built "' + D.name + '"' + (problems ? ' with ' + problems + ' warnings.' : '.') + '\nReport: ' + where);

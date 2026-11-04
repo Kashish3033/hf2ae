@@ -114,8 +114,8 @@ What running in AE found and fixed:
 - AE's errors and dates don't join into text with `+`; the script converts them first.
 - Faux Bold adds 26/1000 em of advance per letter in AE; tracking takes it off.
 - Polar Coordinates spins round the layer's middle, only fills the circle inside it and
-  wraps counter-clockwise: a conic gradient is a solid twice the box's diagonal (ramp
-  right to left, turned by Offset), placed on the gradient's centre inside a box-sized
+  wraps counter-clockwise: a conic gradient is a solid big enough to reach the box's
+  farthest corner (ramp right to left, turned by Offset), placed on the gradient's centre inside a box-sized
   precomp. Masks and sweeps go on the precomp's layer, because AE applies masks before
   effects and Polar Coordinates would bend them.
 - AE writes `\r` line endings to text files by default; reports now use `\n`, and

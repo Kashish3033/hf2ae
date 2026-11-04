@@ -160,11 +160,11 @@ export function boxLayer(item, { fps, gradient, sweep, notes }) {
     if (sizeChanges) notes.push(`${name}: gradient box changes size; the solid keeps its first size`);
     // Polar Coordinates spins round its layer's middle and only fills the circle
     // inside it, so a conic gradient is a solid big enough to reach every corner
-    // from any centre in the box, placed on that centre, inside a box-sized
+    // from the gradient's centre, placed on that centre, inside a box-sized
     // precomp. Masks and sweeps go on the precomp's layer: AE applies masks
     // before effects, so Polar Coordinates would bend them.
     const conic = gradient.props.mode.value === 'conic';
-    const sw = conic ? Math.ceil(2 * Math.hypot(w, h)) : Math.round(w), sh = conic ? sw : Math.round(h);
+    const sw = conic ? 2 * Math.ceil(gradient.reach) : Math.round(w), sh = conic ? sw : Math.round(h);
     const center = gradient.props.center;
     if (conic) gradient.props.center = P([sw / 2, sh / 2]);
     const over = sweep ? [sweep] : [];
@@ -224,7 +224,9 @@ export function gradientEffect(g, w, h, fps) {
   };
   if (first.type === 'radial') props.radius = fitCurve(g.samples.map((x) => x.radius), { tol: 0.1, fps });
   else props.angle = fitCurve(g.samples.map((x) => x.angle), { tol: 0.05, fps });
-  return { type: 'gradient', name: 'Gradient', props };
+  // How far the box's farthest corner gets from the centre over the whole shot.
+  const reach = Math.max(...g.samples.flatMap((x) => [0, w].flatMap((cx) => [0, h].map((cy) => Math.hypot(x.x / 100 * w - cx, x.y / 100 * h - cy)))));
+  return { type: 'gradient', name: 'Gradient', reach, props };
 }
 
 // hfPlus.sweep -> CC Light Sweep: the band's centre moves along the gradient

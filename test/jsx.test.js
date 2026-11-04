@@ -192,8 +192,39 @@ test('a conic gradient keeps its centre, and its mask and sweep stay on the box'
   const layers = Object.values(data.comps).flatMap((c) => c.layers);
   const outer = layers.find((l) => l.name === 'con'), inner = layers.find((l) => l.name === 'con – gradient');
   assert.deepEqual(inner.position.value, [126, 84]); // 30% 20% of 420x420
+  assert.equal(inner.w, 894); // twice the 447px to the farthest corner, from (126, 84)
   assert.deepEqual(inner.effects.map((e) => e.type), ['gradient']);
   assert.deepEqual(outer.effects.map((e) => e.type), ['lightSweep']);
   assert.equal(outer.masks.length, 1);
   assert.equal(inner.masks, undefined);
+});
+
+test('batch mode: Cancel on the save prompt stops before anything is built or saved', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hf2ae-cancel-'));
+  const { jsxPath } = writeJsx({
+    name: 'Cancel', fps: 25, main: 'c', footage: {},
+    comps: { c: { id: 'c', name: 'Cancel', w: 100, h: 100, frames: 10, layers: [] } }, notes: [],
+  }, dir);
+  const { ctx, items } = mockAE(dir);
+  let saved = false;
+  ctx.HF2AE_BATCH = { base: dir, save: path.join(dir, 'project.aep') };
+  ctx.app.project.close = () => false;
+  ctx.app.project.save = () => { saved = true; };
+  vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
+  assert.match(ctx.$.global.HF2AE_RESULT, /^SCRIPT ERROR/);
+  assert.equal(items.length, 0);
+  assert.equal(saved, false);
+});
+
+test('the report reaches the warning checks, so they can fail', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hf2ae-report-'));
+  const layer = makeLayer({ name: 'a', kind: 'solid', w: 10, h: 10, color: [1, 1, 1], outFrame: 10, effects: [{ type: 'nope', name: 'x', props: {} }] });
+  const { jsxPath } = writeJsx({
+    name: 'Report', fps: 25, main: 'c', footage: {},
+    comps: { c: { id: 'c', name: 'Report', w: 100, h: 100, frames: 10, layers: [layer] } }, notes: [],
+  }, dir);
+  const { ctx, files } = mockAE(dir);
+  vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
+  assert.deepEqual(reportWarnings(Object.values(files)[0].join('\n')), ['Report / a: unknown effect type nope']);
+  assert.match(ctx.alerted, /with 1 warnings/);
 });
