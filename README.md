@@ -94,6 +94,17 @@ If a font is missing, the report says which one AE used instead.
 it with `aerender`; `verify.js --candidate ae_render.mov` then compares AE's
 render with Frameo's.
 
+One command converts, builds in AE, renders and scores:
+
+```bash
+node src/cli.js examples/punch_demo/shot.json --ae --ref out/punch_demo/reference_444.mp4
+```
+
+`--ae` builds and renders in After Effects; `--ref` scores against a reference
+video or HyperFrames `.html` (AE's render with `--ae`, the browser preview
+without); `--bg` sets the background the reference is laid over. The steps
+also run on their own:
+
 ```bash
 node src/aerun.js out/punch_demo
 ```
@@ -147,7 +158,7 @@ all 16 shots build; the only warnings are the test pages' generic `monospace` la
 | a5 SOLVAY matte | 47.1 | 45.4 | 46.2 | 44.3 | |
 | a6 shape booleans | 30.1 | 30.1 | 33.4 | 33.3 | |
 | a7 radial/conic | 30.1 | 30.0 | 29.7 | 29.7 | |
-| a7b off-centre conic | 32.3 | 24.0 | 71.1 | 55.9 | reference is the HTML with the hfPlus stand-in; CC Light Sweep's band is wider and brighter than the stand-in's |
+| a7b off-centre conic | 32.3 | 24.0 | 70.8 | 45.5 | reference is the HTML with the hfPlus stand-in; CC Light Sweep's band is wider and brighter than the stand-in's |
 | a8 paintPath | 27.7 | 25.4 | 27.6 | 26.4 | |
 | a10 eight eases | 25.8 | 25.7 | 26.3 | 26.3 | |
 | w1 whip flash | 37.7 | 27.9 | 34.4 | 20.0 | |

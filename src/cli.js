@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-// hf2ae <shot.json> [-o outDir]
+// hf2ae <shot.json> [-o outDir] [--ae] [--ref <video or .html>] [--bg #808080]
+//   --ae   also build the project in After Effects and render it (src/aerun.js)
+//   --ref  also score the result against this reference (src/verify.js):
+//          AE's render with --ae, the browser preview without
 //
 // shot.json:
 // {
@@ -143,23 +146,40 @@ export async function convert(shotPath, outDir) {
   const { jsxPath, data } = writeJsx(timeline, outDir);
   const text = summarize(data);
   fs.writeFileSync(path.join(outDir, 'timeline.txt'), `${text}\n`);
-  return { jsxPath, text };
+  return { jsxPath, text, name: shot.name };
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const args = process.argv.slice(2);
-  const shot = args.find((a) => !a.startsWith('-'));
   const o = args.indexOf('-o');
+  const opt = (k) => { const n = args.indexOf(`--${k}`); return n >= 0 ? args[n + 1] : undefined; };
+  const shot = args.find((a, n) => !a.startsWith('-') && !['-o', '--ref', '--bg'].includes(args[n - 1]));
   if (!shot) {
-    console.error('usage: hf2ae <shot.json> [-o outDir]');
+    console.error('usage: hf2ae <shot.json> [-o outDir] [--ae] [--ref <video or .html>] [--bg #808080]');
     process.exit(1);
   }
   const outDir = o >= 0 ? args[o + 1] : path.join('out', path.basename(path.dirname(path.resolve(shot))));
-  convert(shot, outDir).then(({ jsxPath, text }) => {
+  (async () => {
+    const { jsxPath, text, name } = await convert(shot, outDir);
     console.log(text);
     console.log(`\nWrote ${jsxPath}`);
-  }).catch((e) => {
+    const ae = args.includes('--ae');
+    if (ae) {
+      const { runInAE, renderInAE, reportWarnings } = await import('./aerun.js');
+      const { aep, report } = runInAE(outDir);
+      const warnings = reportWarnings(report);
+      console.log(`Built ${aep}${warnings.length ? `\nAE warnings:\n  ${warnings.join('\n  ')}` : ' (no AE warnings)'}`);
+      console.log(`Rendered ${renderInAE(outDir)}`);
+    }
+    if (opt('ref')) {
+      const { verify } = await import('./verify.js');
+      const r = await verify(outDir, { comp: name, ref: path.resolve(opt('ref')), bg: opt('bg'), candidate: ae ? 'ae_render.mov' : null });
+      const fmt = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} dB` : 'identical');
+      console.log(`${ae ? 'After Effects' : 'Preview'} vs reference: ${r.frames} frames, PSNR mean ${fmt(r.psnr.mean)}, worst ${fmt(r.psnr.min)}`);
+      console.log(`Sheet: ${r.sheet}`);
+    }
+  })().catch((e) => {
     console.error(`hf2ae: ${e.message}`);
     process.exit(1);
   });
