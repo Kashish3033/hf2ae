@@ -156,9 +156,24 @@ export class GraphReader {
 
   apply(filter, ins) {
     const fn = this[`f_${filter.name}`];
-    if (!fn) throw new Error(`ffmpeg filter '${filter.name}' isn't supported yet`);
+    if (!fn) return [this.unsupported(filter, ins)];
     const out = fn.call(this, ins, filter.args);
     return Array.isArray(out) ? out : [out];
+  }
+
+  // A filter with no mapping doesn't stop the conversion: its first input
+  // passes through, under an empty adjustment layer that says what's missing.
+  unsupported(filter, [s]) {
+    if (!s) throw new Error(`ffmpeg filter '${filter.name}' isn't supported and has no input to pass through`);
+    this.note(`ffmpeg filter '${filter.name}' isn't supported: left out, marked by a "MISSING ${filter.name}" layer`);
+    const out = this.clone(s);
+    out.layers.push(makeLayer({
+      name: `MISSING ${filter.name}`, kind: 'adjustment', w: out.w, h: out.h, color: [1, 1, 1],
+      outFrame: Number.isFinite(out.frames) ? out.frames : Infinity,
+      anchor: P([out.w / 2, out.h / 2]), position: P([out.w / 2, out.h / 2]),
+      comment: `hf2ae left out: ${filter.text}`,
+    }));
+    return out;
   }
 
   // ---- no-ops: pixel formats, timestamps, sample aspect ---------------------

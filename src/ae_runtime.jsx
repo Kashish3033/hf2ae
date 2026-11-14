@@ -270,7 +270,16 @@
     if (t.leading) { doc.autoLeading = false; doc.leading = t.leading; }
     try { doc.fauxBold = !!t.fauxBold; doc.fauxItalic = !!t.fauxItalic; } catch (e) { warn(where + ': faux styles: ' + errText(e)); }
     src.setValue(doc);
-    if (src.value.font != t.font) warn(where + ': font ' + t.font + ' (' + t.family + ') is not installed; AE used ' + src.value.font);
+    // AE keeps the name it was given even when it has no such font (seen in
+    // 26.5), so ask its font list where there is one (AE 24 and later).
+    var has = true;
+    try { // older AE has no such list
+      var found = app.fonts ? app.fonts.getFontsByPostScriptName(t.font) : null;
+      // Once a layer uses a missing font, AE lists a stand-in under its name.
+      if (found) has = found.length > 0 && !found[0].isSubstitute;
+    } catch (e) {}
+    if (!has) warn(where + ': font ' + t.font + ' (' + t.family + ') is not installed; AE substitutes its default');
+    else if (src.value.font != t.font) warn(where + ': font ' + t.font + ' (' + t.family + ') is not installed; AE used ' + src.value.font);
   }
 
   // Text Animators (from hfPlus.text.animate): one animator per selector, its

@@ -118,11 +118,15 @@ What running in AE found and fixed:
   farthest corner (ramp right to left, turned by Offset), placed on the gradient's centre inside a box-sized
   precomp. Masks and sweeps go on the precomp's layer, because AE applies masks before
   effects and Polar Coordinates would bend them.
+- AE keeps a missing font's name on the layer and lists a stand-in under that name, so
+  the script asks `app.fonts` and treats `isSubstitute` as missing.
+- An ffmpeg filter with no mapping no longer stops the conversion: its input passes
+  through under an empty `MISSING <filter>` adjustment layer whose comment holds the filter.
 - AE writes `\r` line endings to text files by default; reports now use `\n`, and
   `reportWarnings` reads either.
 
 AE render and browser preview vs the reference, whole frame, PSNR in dB (AE 26.5,
-all 16 shots built with no warnings):
+all 16 shots build; the only warnings are the test pages' generic `monospace` labels, which AE has no font for):
 
 | shot | AE mean | AE worst | preview mean | preview worst | note |
 |---|---|---|---|---|---|

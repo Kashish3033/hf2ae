@@ -137,3 +137,16 @@ test('AE report warnings: every line that is not header or listing, with any lin
   // a comp's name can look like the lines that get skipped
   assert.deepEqual(reportWarnings('effect demo / title: mask: oops\rAfter Effects promo / a: bad'), ['effect demo / title: mask: oops', 'After Effects promo / a: bad']);
 });
+
+test('graph: an unsupported filter is left out and marked, not fatal', () => {
+  const notes = [];
+  const r = new GraphReader({ fps: 25, names: {}, notes });
+  r.inputs = [still(100, 100, 'a')];
+  const out = r.read('[0:v]loop=loop=-1:size=1,trim=end_frame=10,vignette=angle=0.5,negate[v]', 'v');
+  const missing = out.layers.find((l) => l.name === 'MISSING vignette');
+  assert.equal(missing.comment, 'hf2ae left out: vignette=angle=0.5');
+  assert.equal(missing.kind, 'adjustment');
+  assert.ok(out.layers.some((l) => l.effects.some((e) => e.type === 'invert')), 'filters after it still convert');
+  assert.match(notes.join('\n'), /vignette' isn't supported/);
+});
+

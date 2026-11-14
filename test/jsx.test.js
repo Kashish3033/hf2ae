@@ -228,3 +228,17 @@ test('the report reaches the warning checks, so they can fail', () => {
   assert.deepEqual(reportWarnings(Object.values(files)[0].join('\n')), ['Report / a: unknown effect type nope']);
   assert.match(ctx.alerted, /with 1 warnings/);
 });
+
+test('a font After Effects does not have is reported, even though AE keeps its name', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hf2ae-font-'));
+  const text = { text: 'Hi', font: 'Nope-Regular', family: 'Nope', size: 40, fill: [1, 1, 1], tracking: 0, justify: 'left' };
+  const { jsxPath } = writeJsx({
+    name: 'Font', fps: 25, main: 'c', footage: {},
+    comps: { c: { id: 'c', name: 'Font', w: 100, h: 100, frames: 10, layers: [makeLayer({ name: 't', kind: 'text', outFrame: 10, text })] } }, notes: [],
+  }, dir);
+  const { ctx, files } = mockAE(dir);
+  ctx.app.fonts = { getFontsByPostScriptName: () => [{ isSubstitute: true }] }; // what AE 26.5 answers once a layer uses the name
+  vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
+  assert.deepEqual(reportWarnings(Object.values(files)[0].join('\n')), ['Font / t: font Nope-Regular (Nope) is not installed; AE substitutes its default']);
+});
+

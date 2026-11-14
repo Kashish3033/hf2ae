@@ -86,7 +86,7 @@ function parseFilter(text) {
     const key = names[i] ?? `_${i}`;
     if (!(key in args)) args[key] = v;
   });
-  return { name, args };
+  return { name, args, text: text.trim() };
 }
 
 function takeLabels(str, fromEnd) {
