@@ -52,7 +52,8 @@ function makeLayerMock(kind, source) {
   textDoc.setValue = function (v) { this.value = { ...v }; };
   const groups = [tr, new Prop('ADBE Effect Parade', PVT.NO_VALUE, []), new LazyProp('ADBE Text Properties', PVT.NO_VALUE, [textDoc]),
     new LazyProp('ADBE Camera Options Group', PVT.NO_VALUE, []), new LazyProp('ADBE Root Vectors Group', PVT.NO_VALUE, []),
-    new LazyProp('ADBE Mask Parade', PVT.NO_VALUE, [])];
+    new LazyProp('ADBE Mask Parade', PVT.NO_VALUE, []),
+    new Prop('ADBE Audio Group', PVT.NO_VALUE, [new Prop('ADBE Audio Levels', PVT.TwoD)])];
   return {
     kind, source, name: '', startTime: 0, inPoint: 0, outPoint: 0,
     property: (n) => groups.find((g) => g.matchName === n),

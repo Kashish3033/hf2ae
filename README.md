@@ -62,13 +62,20 @@ examples/punch_demo/fetch.sh
   ],
   "graphFile": "graph.txt",
   "output": "v",
-  "names": { "A": "Shot 1 – Einstein push" }
+  "names": { "A": "Shot 1 – Einstein push" },
+  "audio": [ { "file": "src/voice.mp3", "start": 0.5, "volume": 0.8, "name": "Voiceover" } ]
 }
 ```
 
 `inputs` are the ffmpeg `-i` files, in order. An input that has `hyperframes`
 is rebuilt from its HTML; the rendered file is kept as a switched-off guide
 layer so you can compare the two. `names` turns graph labels into comp names.
+
+`audio` is optional. Each entry becomes a sound layer at the top of the main comp:
+`start` in seconds (rounded to a frame), `volume` as a factor like ffmpeg's `volume`
+filter (1 = unchanged, 0.5 = -6 dB). The ffmpeg video graph carries no sound, so
+footage that has its own sound keeps it on its layer, switched off. Not converted:
+ffmpeg audio filter graphs (`adelay`, `amix`, `afade`...), trims and fades.
 
 ## Fonts
 
@@ -122,6 +129,8 @@ What running in AE found and fixed:
   the script asks `app.fonts` and treats `isSubstitute` as missing.
 - An ffmpeg filter with no mapping no longer stops the conversion: its input passes
   through under an empty `MISSING <filter>` adjustment layer whose comment holds the filter.
+- Sound: a 1s tone placed at 0.5s with volume 0.5 comes out of `aerender` at
+  0.52–1.52s (frame 13 of 25fps) and 6.0 dB quieter than the file.
 - AE writes `\r` line endings to text files by default; reports now use `\n`, and
   `reportWarnings` reads either.
 

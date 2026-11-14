@@ -29,7 +29,7 @@ export function summarize(data) {
         l.trackMatte ? `${l.trackMatte.type} matte: ${l.trackMatte.layer}` : null,
         l.threeDPerChar ? 'per-character 3D' : null,
         l.text && l.text.animators ? l.text.animators.map((a) => `${a.name} by ${a.based}: ${Object.keys(a.props).join('/')}`).join('; ') : null,
-        l.enabled === false ? 'off' : null,
+        l.kind === 'audio' ? `${l.volume.value} dB` : l.enabled === false ? 'off' : null,
       ].filter(Boolean).join(', ');
       lines.push(`${pad}  • ${l.name}  [${tags}]  ${l.inFrame}–${l.outFrame}`
         + (anim.length ? `  | ${anim.join(', ')}` : '')

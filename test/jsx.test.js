@@ -242,3 +242,28 @@ test('a font After Effects does not have is reported, even though AE keeps its n
   assert.deepEqual(reportWarnings(Object.values(files)[0].join('\n')), ['Font / t: font Nope-Regular (Nope) is not installed; AE substitutes its default']);
 });
 
+test('audio entries become sound layers of the main comp, timed and levelled', async () => {
+  const { convert } = await import('../src/cli.js');
+  const { execFileSync } = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hf2ae-audio-'));
+  const ff = (...a) => execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', ...a]);
+  ff('-i', 'color=c=red:s=64x64', '-frames:v', '1', path.join(dir, 'a.png'));
+  ff('-i', 'sine=frequency=440:duration=1', path.join(dir, 'tone.wav'));
+  const shot = { name: 'Sound', fps: 25, inputs: [{ file: 'a.png' }], graph: '[0:v]loop=loop=-1:size=1,trim=end_frame=50[v]', output: 'v' };
+  const write = (audio) => fs.writeFileSync(path.join(dir, 'shot.json'), JSON.stringify({ ...shot, audio }));
+  write([{ file: 'tone.wav', start: 0.4, volume: 0.5, name: 'Tone' }]);
+  const { jsxPath, text } = await convert(path.join(dir, 'shot.json'), path.join(dir, 'out'));
+  assert.match(text, /Tone {2}\[audio, -6 dB\] {2}10–35/);
+  const { ctx, items, files } = mockAE(path.join(dir, 'out'));
+  vm.runInNewContext(fs.readFileSync(jsxPath, 'utf8'), ctx);
+  assert.deepEqual(reportWarnings(Object.values(files)[0].join('\n')), []);
+  const tone = items.find((c) => c.name === 'Sound').layerList.find((l) => l.name === 'Tone');
+  assert.equal(tone.startTime, 0.4);
+  assert.equal(tone.enabled, false);
+  assert.deepEqual([...tone.property('ADBE Audio Group').property('ADBE Audio Levels').value], [-6, -6]); // spread: the array comes from the vm
+  assert.ok(fs.existsSync(path.join(dir, 'out', 'footage', 'tone.wav')));
+  // a file with no sound is refused, not silently dropped
+  write([{ file: 'a.png' }]);
+  await assert.rejects(convert(path.join(dir, 'shot.json'), path.join(dir, 'out2')), /has no sound/);
+});
+

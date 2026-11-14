@@ -8,7 +8,8 @@
 // }
 //
 // Layer: {
-//   name, kind: 'footage'|'comp'|'solid'|'adjustment'|'text', source,
+//   name, kind: 'footage'|'comp'|'solid'|'adjustment'|'text'|'audio', source,
+//   volume,                            // audio layers: a Prop in dB
 //   w, h, color,                       // solids / adjustment layers
 //   inFrame, outFrame, startFrame,     // comp frames; outFrame is exclusive
 //   anchor, position, scale, opacity, rotation,   // Props; scale in percent

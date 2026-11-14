@@ -41,7 +41,7 @@ export function prepare(tl) {
     comps[id] = {
       ...c,
       layers: c.layers.map((l) => {
-        if (l.kind === 'footage') usedFootage.add(l.source);
+        if (l.kind === 'footage' || l.kind === 'audio') usedFootage.add(l.source);
         const out = {
           ...l,
           inFrame: Math.max(0, l.inFrame),
@@ -69,7 +69,7 @@ export function writeJsx(tl, outDir) {
       // keeps the alpha channel.
       dest = dest.replace(/\.webm$/i, '.mov');
       execFileSync('ffmpeg', ['-v', 'error', '-y', '-c:v', 'libvpx-vp9', '-i', fd.path, '-c:v', 'prores_ks', '-profile:v', '4444',
-        '-pix_fmt', 'yuva444p10le', '-an', path.join(outDir, dest)]);
+        '-pix_fmt', 'yuva444p10le', '-c:a', 'pcm_s16le', path.join(outDir, dest)]);
     } else {
       fs.copyFileSync(fd.path, path.join(outDir, dest));
     }

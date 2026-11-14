@@ -421,7 +421,7 @@
 
   function createLayer(comp, L, items, compData) {
     var layer;
-    if (L.kind == 'footage') layer = comp.layers.add(items.footage[L.source]);
+    if (L.kind == 'footage' || L.kind == 'audio') layer = comp.layers.add(items.footage[L.source]);
     else if (L.kind == 'comp') layer = comp.layers.add(items.comps[L.source]);
     else if (L.kind == 'text') layer = comp.layers.addText(L.text.text);
     else if (L.kind == 'shape') layer = comp.layers.addShape();
@@ -461,6 +461,14 @@
       L = c.layers[i]; layer = made[i];
       if (!layer) continue;
       where = c.name + ' / ' + L.name;
+      if (L.kind == 'audio') {
+        // Sound only: a sound file's layer has no transform, a video file's picture is switched off.
+        try { layer.enabled = false; } catch (e) {}
+        setProp(layer.property('ADBE Audio Group').property('ADBE Audio Levels'), L.volume, function (v) { return [v, v]; }, where + ' volume');
+        continue;
+      }
+      // ffmpeg's video graph drops the footage's own sound; it stays on the layer, switched off.
+      if (layer.hasAudio) layer.audioEnabled = false;
       if (L.kind == 'text') {
         if (L.threeDPerChar) { try { layer.threeDPerChar = true; } catch (e) { warn(where + ': per-character 3D: ' + errText(e)); } }
         setText(layer, L.text, where);

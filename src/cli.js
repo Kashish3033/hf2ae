@@ -9,7 +9,8 @@
 //               { "file": "src/title.webm", "name": "Punch Title", "hyperframes": "src/title.html" } ],
 //   "graph": "<the -filter_complex string>"  (or "graphFile": "graph.txt"),
 //   "output": "v",
-//   "names": { "A": "Shot 1 – Einstein push" }
+//   "names": { "A": "Shot 1 – Einstein push" },
+//   "audio": [ { "file": "src/voice.mp3", "start": 0.5, "volume": 0.8, "name": "Voiceover" } ]
 // }
 
 import fs from 'node:fs';
@@ -32,6 +33,14 @@ function probe(file) {
   ], { encoding: 'utf8' });
   const s = JSON.parse(json).streams[0];
   return { w: s.width, h: s.height, frames: STILL.test(file) ? 1 : parseInt(s.nb_read_packets, 10) };
+}
+
+// How long a file's sound runs, in seconds.
+function audioSeconds(file) {
+  const out = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_type:format=duration', '-of', 'json', file], { encoding: 'utf8' });
+  const info = JSON.parse(out);
+  if (!info.streams.length) throw new Error(`audio ${file}: the file has no sound`);
+  return parseFloat(info.format.duration);
 }
 
 // A <video>/<img> the HyperFrames page loads: download it once next to the
@@ -110,6 +119,24 @@ export async function convert(shotPath, outDir) {
   const out = reader.read(graph, shot.output || 'v');
   const main = reader.precomp(out, shot.name);
   const mainId = main.layers[0].source;
+
+  // The video graph carries no sound: each audio entry becomes a layer of
+  // the main comp, on top, starting at `start` seconds.
+  const mainComp = reader.comps[mainId];
+  for (const a of shot.audio || []) {
+    const file = path.resolve(dir, a.file);
+    const seconds = audioSeconds(file);
+    const id = newId('ftg');
+    footage[id] = { id, name: path.basename(file), file, path: file, frames: Math.round(seconds * fps), still: false };
+    const startFrame = Math.round((a.start || 0) * fps);
+    const volume = a.volume ?? 1; // a factor, as in ffmpeg's volume filter
+    if (!(volume >= 0)) throw new Error(`audio ${a.file}: volume must be a number from 0 up (1 = unchanged)`);
+    mainComp.layers.push(makeLayer({
+      name: a.name || path.basename(file, path.extname(file)), kind: 'audio', source: id, enabled: false,
+      startFrame, inFrame: startFrame, outFrame: Math.min(startFrame + Math.round(seconds * fps), mainComp.frames),
+      volume: P(volume > 0 ? Math.max(-192, Math.round(200 * Math.log10(volume)) / 10) : -192), // dB; AE's floor is -192
+    }));
+  }
 
   const timeline = { name: shot.name, fps, main: mainId, footage, comps: reader.comps, notes };
   fs.mkdirSync(outDir, { recursive: true });
